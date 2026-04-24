@@ -27,16 +27,9 @@ orjson==3.9.15
 # Redis
 redis==5.0.1
 
-# Dev / testing
-pytest==8.0.2
-pytest-asyncio==0.23.5
-httpx==0.27.0
-ruff==0.3.0
-mypy==1.8.0
-
 # Extraction
 extruct==0.16.0
-lxml==5.1.0
+lxml==5.2.2
 beautifulsoup4==4.12.3
 selectolax==0.3.17
 html-sanitizer==2.4.4
@@ -45,6 +38,8 @@ w3lib==2.1.2
 # LLM
 anthropic==0.40.0
 
-# Matching
-rapidfuzz==3.6.1
-openai==1.12.0  # for embedding generation
+# Dev / testing
+pytest==8.0.2
+pytest-asyncio==0.23.5
+ruff==0.3.0
+mypy==1.8.0
