@@ -1,0 +1,40 @@
+{
+  "name": "Grounds — UK Specialty Coffee",
+  "short_name": "Grounds",
+  "description": "Browse and compare specialty coffees from 200+ UK roasters. Track prices, discover new releases.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f5f0",
+  "theme_color": "#f7f5f0",
+  "categories": ["food", "lifestyle", "shopping"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Browse coffees",
+      "short_name": "Browse",
+      "url": "/coffees",
+      "description": "Browse all specialty coffees"
+    },
+    {
+      "name": "New releases",
+      "short_name": "New",
+      "url": "/new-releases",
+      "description": "Latest coffee releases"
+    }
+  ]
+}

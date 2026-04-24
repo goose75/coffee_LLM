@@ -1,0 +1,118 @@
+{
+  "products": [
+    {
+      "id": 7123456789012,
+      "title": "Ethiopia Yirgacheffe Konga",
+      "handle": "ethiopia-yirgacheffe-konga",
+      "body_html": "<p>A complex, floral filter coffee from the Konga cooperative in Yirgacheffe. Expect jasmine, bergamot, and a sweet citrus finish.</p>",
+      "tags": "Ethiopia, Filter, Light Roast, Washed, Yirgacheffe",
+      "product_type": "Coffee",
+      "variants": [
+        {
+          "id": 41234567890001,
+          "title": "250g / Whole Bean",
+          "option1": "250g",
+          "option2": "Whole Bean",
+          "option3": null,
+          "price": "12.50",
+          "sku": "ETH-YRG-250-WB",
+          "available": true,
+          "inventory_quantity": 48,
+          "inventory_policy": "deny"
+        },
+        {
+          "id": 41234567890002,
+          "title": "250g / Filter",
+          "option1": "250g",
+          "option2": "Filter",
+          "option3": null,
+          "price": "12.50",
+          "sku": "ETH-YRG-250-FL",
+          "available": true,
+          "inventory_quantity": 32,
+          "inventory_policy": "deny"
+        },
+        {
+          "id": 41234567890003,
+          "title": "1kg / Whole Bean",
+          "option1": "1kg",
+          "option2": "Whole Bean",
+          "option3": null,
+          "price": "42.00",
+          "sku": "ETH-YRG-1000-WB",
+          "available": true,
+          "inventory_quantity": 12,
+          "inventory_policy": "deny"
+        }
+      ]
+    },
+    {
+      "id": 7123456789013,
+      "title": "Colombia El Paraiso Anaerobic Natural",
+      "handle": "colombia-el-paraiso-anaerobic",
+      "body_html": "<p>Extraordinary experimental lot from Diego Bermudez. Double anaerobic fermentation produces tropical fruit candy intensity.</p>",
+      "tags": "Colombia, Espresso, Light Roast, Anaerobic, Natural",
+      "product_type": "Coffee",
+      "variants": [
+        {
+          "id": 41234567890010,
+          "title": "250g / Whole Bean",
+          "option1": "250g",
+          "option2": "Whole Bean",
+          "option3": null,
+          "price": "18.50",
+          "sku": "COL-EP-250-WB",
+          "available": true,
+          "inventory_quantity": 20,
+          "inventory_policy": "deny"
+        },
+        {
+          "id": 41234567890011,
+          "title": "250g / Espresso",
+          "option1": "250g",
+          "option2": "Espresso",
+          "option3": null,
+          "price": "18.50",
+          "sku": "COL-EP-250-ESP",
+          "available": false,
+          "inventory_quantity": 0,
+          "inventory_policy": "deny"
+        }
+      ]
+    },
+    {
+      "id": 7123456789014,
+      "title": "House Espresso Blend",
+      "handle": "house-espresso-blend",
+      "body_html": "<p>Our everyday espresso blend. Reliable, balanced, and works beautifully with milk.</p>",
+      "tags": "Blend, Espresso, Medium Roast",
+      "product_type": "Coffee",
+      "variants": [
+        {
+          "id": 41234567890020,
+          "title": "250g",
+          "option1": "250g",
+          "option2": null,
+          "option3": null,
+          "price": "9.50",
+          "sku": "BLEND-ESP-250",
+          "available": true,
+          "inventory_quantity": 100,
+          "inventory_policy": "deny"
+        },
+        {
+          "id": 41234567890021,
+          "title": "1kg",
+          "option1": "1kg",
+          "option2": null,
+          "option3": null,
+          "price": "32.00",
+          "sku": "BLEND-ESP-1000",
+          "available": true,
+          "inventory_quantity": 50,
+          "inventory_policy": "deny"
+        }
+      ]
+    }
+  ]
+}

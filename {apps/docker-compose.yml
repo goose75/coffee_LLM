@@ -1,0 +1,127 @@
+version: "3.9"
+
+networks:
+  coffee_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  raw_storage:
+
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: coffee_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: coffee
+      POSTGRES_PASSWORD: coffee
+      POSTGRES_DB: coffee_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - coffee_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coffee -d coffee_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: coffee_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - coffee_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: coffee_api
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      DEBUG: "true"
+      AUTO_CREATE_TABLES: "false"
+      DATABASE_URL: postgresql+asyncpg://coffee:coffee@postgres:5432/coffee_platform
+      DATABASE_POOL_SIZE: "10"
+      DATABASE_MAX_OVERFLOW: "20"
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001"]'
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: ./raw_storage
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: claude-sonnet-4-20250514
+      EMBEDDING_DIMENSIONS: "1536"
+      CONFIDENCE_AUTO_ACCEPT: "0.92"
+      CONFIDENCE_REVIEW_QUEUE: "0.75" 
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/api:/app
+      - raw_storage:/app/raw_storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - coffee_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build:
+      context: ./services/ingestion
+      dockerfile: Dockerfile
+    container_name: coffee_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://coffee:coffee@postgres:5432/coffee_platform
+      REDIS_URL: redis://redis:6379/0
+      WORKER_COUNT: "3"
+      LOG_LEVEL: INFO
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: /app/raw_storage
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8001:8001"           # worker health endpoint
+    volumes:
+      - ./services/ingestion:/app/ingestion_svc
+      - ./services/api:/app/services/api   # shared app.* modules
+      - raw_storage:/app/raw_storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - coffee_net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

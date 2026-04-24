@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-display: "Cormorant Garamond", Georgia, serif;
+    --font-body: "DM Sans", system-ui, sans-serif;
+
+    /* Light mode palette */
+    --bg: #f7f5f0;
+    --bg-warm: #ede9e1;
+    --surface: #ffffff;
+    --surface-raised: #f2ede5;
+    --border: #d9d3c7;
+    --border-light: #e8e3da;
+    --text: #1c1a17;
+    --text-muted: #6b6560;
+    --text-faint: #a09890;
+    --accent: #b5882a;
+    --accent-light: #d4a84b;
+    --accent-dim: #f0e4c4;
+    --tab-h: 64px;        /* bottom tab bar height */
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --process-washed: #6b9e8c;
+    --process-natural: #c4763a;
+    --process-honey: #d4a03a;
+    --process-anaerobic: #8b6bab;
+  }
+
+  .dark {
+    --bg: #0f0e0c;
+    --bg-warm: #161410;
+    --surface: #1a1815;
+    --surface-raised: #211f1b;
+    --border: #2e2b26;
+    --border-light: #242220;
+    --text: #f0ece4;
+    --text-muted: #8a8278;
+    --text-faint: #5a5450;
+    --accent: #c49a3a;
+    --accent-light: #d4aa4a;
+    --accent-dim: #2a2214;
+  }
+
+  * {
+    box-sizing: border-box;
+    /* Remove tap highlight on mobile */
+    -webkit-tap-highlight-color: transparent;
+    /* Prevent text selection on UI elements */
+    -webkit-touch-callout: none;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    /* Prevent bounce scroll on iOS */
+    overscroll-behavior: none;
+    /* Ensure full height */
+    height: 100%;
+    height: -webkit-fill-available;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.6;
+    /* App-like: no bounce, clip height */
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    overscroll-behavior: none;
+    /* Padding for bottom tab bar + safe area */
+    padding-bottom: calc(var(--tab-h) + var(--safe-bottom));
+    padding-top: var(--safe-top);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+  }
+
+  h1, h2, h3, h4, .display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+  }
+}
+
+@layer utilities {
+  .text-display { font-family: var(--font-display); }
+  .bg-surface { background-color: var(--surface); }
+  .bg-surface-raised { background-color: var(--surface-raised); }
+  .bg-warm { background-color: var(--bg-warm); }
+  .border-base { border-color: var(--border); }
+  .border-light { border-color: var(--border-light); }
+  .text-accent { color: var(--accent); }
+  .text-muted { color: var(--text-muted); }
+  .text-faint { color: var(--text-faint); }
+
+  /* Scrollable content area — fills above the tab bar */
+  .scroll-content {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  /* Native-feeling pressed state */
+  .press-active {
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+  .press-active:active {
+    transform: scale(0.96);
+    opacity: 0.75;
+  }
+
+  /* Grain texture overlay */
+  .grain::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.35;
+  }
+
+  /* Animations */
+  .fade-in { animation: fadeIn 0.4s ease both; }
+  .fade-in-up { animation: fadeInUp 0.5s ease both; }
+  .slide-up { animation: slideUp 0.35s cubic-bezier(0.2, 0, 0, 1) both; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
