@@ -1,131 +1,111 @@
 """
-CanonicalMatch model — entity resolution decisions.
-NormalisationMapping model — raw-to-controlled-vocab dictionary.
-
-CanonicalMatch records every attempt to link a bean_listing to a canonical_bean.
-The match may be system-generated (auto-accepted above threshold) or pending
-human review. Every decision is stored — including rejections — for auditability.
-
-NormalisationMapping is the editable dictionary that maps raw source strings
-to controlled vocabulary values. Entries here are applied during the
-normalisation pass and can be extended by operators via the admin app.
+ORM models for entity resolution and normalisation mappings.
 """
 
-import uuid
-from datetime import datetime
+from __future__ import annotations
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, func
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import Base
-from app.models.mixins import UUIDMixin, TimestampMixin
-from app.models.enums import MatchMethod, ReviewStatus, MappingType
+from app.models.base import Base, UUIDMixin
 
 
 class CanonicalMatch(UUIDMixin, Base):
     """
-    A match decision linking a bean_listing to a canonical_bean.
-
-    Lifecycle:
-    1. Entity resolution proposes a match with a confidence_score.
-    2. If score >= AUTO_ACCEPT threshold → accepted_by_system_flag = True.
-    3. If score is in review band → review_status = pending, queued for human.
-    4. Human accepts or rejects via admin app.
-    5. On accept: bean_listing.canonical_bean_id is updated.
+    Records a proposed or confirmed match between a bean_listing and a canonical_bean.
+    Confidence-band routing:
+      >= 0.92  → auto-accepted
+      0.75-0.91 → review queue
+      < 0.75   → new canonical candidate
     """
 
     __tablename__ = "canonical_matches"
 
-    # ── References ─────────────────────────────────────────────────────────
-    bean_listing_id: Mapped[uuid.UUID] = mapped_column(
+    listing_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("bean_listings.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    proposed_canonical_bean_id: Mapped[uuid.UUID] = mapped_column(
+    canonical_bean_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("canonical_beans.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    # ── Match decision ─────────────────────────────────────────────────────
-    match_method: Mapped[MatchMethod] = mapped_column(nullable=False, index=True)
-    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, index=True)
-
-    # System auto-accepted when confidence >= threshold
-    accepted_by_system_flag: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False)
+    match_method: Mapped[str] = mapped_column(String(50), nullable=False)
+    review_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
     )
 
-    # ── Human review ───────────────────────────────────────────────────────
-    reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    review_status: Mapped[ReviewStatus] = mapped_column(
-        nullable=False, default=ReviewStatus.pending, index=True
-    )
-    review_notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Signal breakdown stored as JSON — fix: use JSON not dict
+    match_signals_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    reviewed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # ── Debug signals (stored for reviewer context) ────────────────────────
-    # Stores the per-signal breakdown: exact_score, fuzzy_score, embedding_score
-    match_signals: Mapped[dict | None] = mapped_column(
-        "match_signals_json",
-        type_=None,  # overridden in migration with JSONB
-        nullable=True,
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
-    bean_listing: Mapped["BeanListing"] = relationship(  # noqa: F821
-        back_populates="canonical_matches",
-        foreign_keys=[bean_listing_id],
+    listing = relationship("BeanListing", back_populates="canonical_matches")
+    canonical_bean = relationship("CanonicalBean", back_populates="canonical_matches")
+
+    __table_args__ = (
+        Index("ix_canonical_matches_review_status", "review_status"),
+        Index("ix_canonical_matches_confidence", "confidence_score"),
     )
-    proposed_canonical_bean: Mapped["CanonicalBean"] = relationship(  # noqa: F821
-        back_populates="canonical_matches",
-        foreign_keys=[proposed_canonical_bean_id],
-    )
-
-    def __repr__(self) -> str:
-        return (
-            f"<CanonicalMatch {self.match_method} "
-            f"confidence={self.confidence_score:.2f} "
-            f"status={self.review_status}>"
-        )
 
 
-class NormalisationMapping(UUIDMixin, TimestampMixin, Base):
+class NormalisationMapping(UUIDMixin, Base):
     """
-    Raw source string → controlled vocabulary mapping.
-
-    e.g. "Full City" → roast_level: "medium_dark"
-         "French Press" → grind_type: "cafetiere"
-         "Natural Process" → process: "natural"
-
-    These mappings are applied during the normalisation pass and are
-    editable by operators through the admin app's mapping dictionary manager.
-    confidence_score represents how certain we are this mapping is correct —
-    lower-confidence mappings can be flagged for review.
+    Operator-curated mapping from raw source text to controlled vocabulary values.
+    DB lookups take priority over rule-based matching in CoffeeNormaliser.
     """
 
     __tablename__ = "normalisation_mappings"
 
-    mapping_type: Mapped[MappingType] = mapped_column(nullable=False, index=True)
-    raw_value: Mapped[str] = mapped_column(String(500), nullable=False)
-    normalised_value: Mapped[str] = mapped_column(String(200), nullable=False)
+    mapping_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    raw_value: Mapped[str] = mapped_column(Text, nullable=False)
+    normalised_value: Mapped[str] = mapped_column(Text, nullable=False)
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
 
-    # Source: "manual" (operator-entered) | "llm" (LLM-suggested) | "rule" (pattern-matched)
-    source: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
-    def __repr__(self) -> str:
-        return (
-            f"<NormalisationMapping {self.mapping_type}: "
-            f"'{self.raw_value}' → '{self.normalised_value}'>"
-        )
+    __table_args__ = (
+        Index(
+            "ix_normalisation_mappings_type_raw",
+            "mapping_type",
+            "raw_value",
+            unique=True,
+        ),
+    )
