@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
+from fastapi.responses import Response
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -590,7 +591,7 @@ async def update_mapping(
     return MappingItem.model_validate(row)
 
 
-@router.delete("/mappings/{mapping_id}", status_code=204)
+@router.delete("/mappings/{mapping_id}", status_code=204, response_class=Response)
 async def delete_mapping(mapping_id: str, db: AsyncSession = Depends(get_db)) -> None:
     """Delete a mapping entry."""
     try:
