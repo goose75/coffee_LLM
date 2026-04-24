@@ -65,11 +65,11 @@ services:
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001"]'
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: ./raw_storage
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY: ""
       LLM_MODEL: claude-sonnet-4-20250514
       EMBEDDING_DIMENSIONS: "1536"
       CONFIDENCE_AUTO_ACCEPT: "0.92"
-      CONFIDENCE_REVIEW_QUEUE: "0.75" 
+      CONFIDENCE_REVIEW_QUEUE: "0.75"
     ports:
       - "8000:8000"
     volumes:
@@ -88,40 +88,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-
-  worker:
-    build:
-      context: ./services/ingestion
-      dockerfile: Dockerfile
-    container_name: coffee_worker
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql+asyncpg://coffee:coffee@postgres:5432/coffee_platform
-      REDIS_URL: redis://redis:6379/0
-      WORKER_COUNT: "3"
-      LOG_LEVEL: INFO
-      STORAGE_BACKEND: local
-      STORAGE_LOCAL_PATH: /app/raw_storage
-    environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-    ports:
-      - "8001:8001"           # worker health endpoint
-    volumes:
-      - ./services/ingestion:/app/ingestion_svc
-      - ./services/api:/app/services/api   # shared app.* modules
-      - raw_storage:/app/raw_storage
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_healthy
-    networks:
-      - coffee_net
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
