@@ -1,59 +1,56 @@
 """
-Extended seed script — adds everything needed to demo price + taste intelligence.
-
-Run after: alembic upgrade head && python scripts/seed.py
-
-New in this script (safe to re-run via ON CONFLICT DO NOTHING):
-  - bean_listings  (3 beans × 3 stores = 9 listings)
-  - listing_variants with weight/grind/price
-  - price_history  (60 days of synthetic history per variant)
-  - flavour_taxonomy (full 3-level tree)
-  - bean_flavour_tags (pre-normalised, source='rule')
-
-Run the original seed.py first to create stores and canonical beans.
-This script assumes those exist.
+Extended seed script — ORM version (no raw SQL).
+Adds listings, variants, price history, and flavour taxonomy.
+Run after: python scripts/seed.py
 """
 
 import asyncio
+import hashlib
 import os
 import sys
-import hashlib
 from datetime import datetime, timedelta, timezone
-from math import sin, pi
+from math import sin
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, "/app")
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import text
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.config import settings
-from app.services.taste.taxonomy import TAXONOMY
+from app.models.bean_listing import BeanListing
+from app.models.canonical_bean import CanonicalBean
+from app.models.flavour import BeanFlavourTag, FlavourTaxonomy
+from app.models.pricing import ListingVariant, PriceHistory
+from app.models.store import Store
+import app.models  # noqa: register all
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://coffee:coffee@postgres:5432/coffee_platform",
+)
 
 
-# ─── Price history helpers ─────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _synth_price(base: float, day: int, amplitude: float = 0.08) -> float:
-    """Generate a realistic-looking price with slow drift and small noise."""
-    noise = sin(day * 0.3) * amplitude * base + sin(day * 1.1) * amplitude * 0.5 * base
-    return round(base + noise, 2)
+def synth_price(base: float, day: int) -> float:
+    noise = sin(day * 0.3) * 0.08 * base + sin(day * 1.1) * 0.04 * base
+    return round(max(base * 0.85, base + noise), 2)
 
 
-def _p100(price: float, weight_g: int) -> float:
+def p100(price: float, weight_g: int) -> float:
     return round(price / weight_g * 100, 4)
 
 
-# ─── Listing / variant definitions ────────────────────────────────────────────
+# ── Listing specs ─────────────────────────────────────────────────────────────
 
 LISTING_SPECS = [
-    # bean_name_key, store_domain, raw_title, product_url, variants
     {
         "bean_key": "Ethiopia Yirgacheffe Konga Washed",
         "store": "shop.squaremilecoffee.com",
         "raw_title": "Yirgacheffe Konga",
         "product_url": "https://shop.squaremilecoffee.com/products/yirgacheffe-konga",
         "variants": [
-            {"title": "250g / Whole Bean", "weight_g": 250, "grind": "whole_bean", "base_price": 12.50, "avail": "in_stock", "sku": "SMC-ETH-250-WB"},
-            {"title": "1kg / Whole Bean",  "weight_g": 1000, "grind": "whole_bean", "base_price": 42.00, "avail": "in_stock", "sku": "SMC-ETH-1K-WB"},
+            {"title": "250g / Whole Bean", "weight_g": 250,  "grind": "whole_bean", "base_price": 12.50, "avail": "in_stock",     "sku": "SMC-ETH-250-WB"},
+            {"title": "1kg / Whole Bean",  "weight_g": 1000, "grind": "whole_bean", "base_price": 42.00, "avail": "in_stock",     "sku": "SMC-ETH-1K-WB"},
         ],
     },
     {
@@ -62,9 +59,9 @@ LISTING_SPECS = [
         "raw_title": "Ethiopia Konga Washed 2024",
         "product_url": "https://www.workshopcoffee.com/products/ethiopia-konga",
         "variants": [
-            {"title": "250g / Whole Bean", "weight_g": 250, "grind": "whole_bean", "base_price": 13.50, "avail": "in_stock", "sku": "WC-ETH-250"},
-            {"title": "250g / Filter",     "weight_g": 250, "grind": "filter",     "base_price": 13.50, "avail": "in_stock", "sku": "WC-ETH-250-F"},
-            {"title": "1kg / Whole Bean",  "weight_g": 1000, "grind": "whole_bean","base_price": 44.00, "avail": "out_of_stock","sku": "WC-ETH-1K"},
+            {"title": "250g / Whole Bean", "weight_g": 250,  "grind": "whole_bean", "base_price": 13.50, "avail": "in_stock",     "sku": "WC-ETH-250"},
+            {"title": "250g / Filter",     "weight_g": 250,  "grind": "filter",     "base_price": 13.50, "avail": "in_stock",     "sku": "WC-ETH-250-F"},
+            {"title": "1kg / Whole Bean",  "weight_g": 1000, "grind": "whole_bean", "base_price": 44.00, "avail": "out_of_stock", "sku": "WC-ETH-1K"},
         ],
     },
     {
@@ -83,8 +80,8 @@ LISTING_SPECS = [
         "raw_title": "El Paraiso Anaerobic Natural",
         "product_url": "https://shop.squaremilecoffee.com/products/el-paraiso",
         "variants": [
-            {"title": "250g / Whole Bean", "weight_g": 250, "grind": "whole_bean", "base_price": 18.50, "avail": "in_stock", "sku": "SMC-COL-250"},
-            {"title": "1kg / Whole Bean",  "weight_g": 1000,"grind": "whole_bean", "base_price": 62.00, "avail": "in_stock", "sku": "SMC-COL-1K"},
+            {"title": "250g / Whole Bean", "weight_g": 250,  "grind": "whole_bean", "base_price": 18.50, "avail": "in_stock", "sku": "SMC-COL-250"},
+            {"title": "1kg / Whole Bean",  "weight_g": 1000, "grind": "whole_bean", "base_price": 62.00, "avail": "in_stock", "sku": "SMC-COL-1K"},
         ],
     },
     {
@@ -102,8 +99,8 @@ LISTING_SPECS = [
         "raw_title": "Kenya Kirinyaga AB",
         "product_url": "https://shop.squaremilecoffee.com/products/kenya-kirinyaga",
         "variants": [
-            {"title": "250g / Whole Bean", "weight_g": 250, "grind": "whole_bean", "base_price": 14.00, "avail": "in_stock", "sku": "SMC-KEN-250"},
-            {"title": "1kg / Whole Bean",  "weight_g": 1000,"grind": "whole_bean", "base_price": 48.00, "avail": "in_stock", "sku": "SMC-KEN-1K"},
+            {"title": "250g / Whole Bean", "weight_g": 250,  "grind": "whole_bean", "base_price": 14.00, "avail": "in_stock", "sku": "SMC-KEN-250"},
+            {"title": "1kg / Whole Bean",  "weight_g": 1000, "grind": "whole_bean", "base_price": 48.00, "avail": "in_stock", "sku": "SMC-KEN-1K"},
         ],
     },
     {
@@ -122,203 +119,190 @@ LISTING_SPECS = [
         "raw_title": "Kenya Kirinyaga",
         "product_url": "https://www.monmouthcoffee.co.uk/products/kenya",
         "variants": [
-            {"title": "250g / Whole Bean", "weight_g": 250, "grind": "whole_bean", "base_price": 14.50, "avail": "in_stock", "sku": "MON-KEN-250"},
-            {"title": "250g / Espresso",   "weight_g": 250, "grind": "espresso",   "base_price": 14.50, "avail": "in_stock", "sku": "MON-KEN-250-ESP"},
+            {"title": "250g / Whole Bean", "weight_g": 250, "grind": "whole_bean", "base_price": 14.50, "avail": "in_stock",  "sku": "MON-KEN-250"},
+            {"title": "250g / Espresso",   "weight_g": 250, "grind": "espresso",   "base_price": 14.50, "avail": "in_stock",  "sku": "MON-KEN-250-ESP"},
         ],
     },
 ]
 
+FLAVOUR_FAMILIES = [
+    {"slug": "fruity",    "label": "Fruity",    "colour": "#e05c3a", "sort_order": 1},
+    {"slug": "floral",    "label": "Floral",    "colour": "#c084c0", "sort_order": 2},
+    {"slug": "sweet",     "label": "Sweet",     "colour": "#d4a84b", "sort_order": 3},
+    {"slug": "chocolate", "label": "Chocolate", "colour": "#7c4b2a", "sort_order": 4},
+    {"slug": "nutty",     "label": "Nutty",     "colour": "#a07850", "sort_order": 5},
+    {"slug": "spice",     "label": "Spice",     "colour": "#c47820", "sort_order": 6},
+    {"slug": "earthy",    "label": "Earthy",    "colour": "#6b7c4a", "sort_order": 7},
+    {"slug": "fermented", "label": "Fermented", "colour": "#8b6bab", "sort_order": 8},
+]
 
-# ─── Seed runner ──────────────────────────────────────────────────────────────
+BEAN_FLAVOUR_TAGS = {
+    "Ethiopia Yirgacheffe Konga Washed": [
+        ("jasmine",  "floral"),
+        ("bergamot", "floral"),
+        ("lemon",    "fruity"),
+        ("peach",    "fruity"),
+    ],
+    "Colombia El Paraiso Anaerobic Natural": [
+        ("tropical fruit", "fruity"),
+        ("strawberry",     "fruity"),
+        ("passionfruit",   "fruity"),
+        ("candy",          "sweet"),
+    ],
+    "Kenya Kirinyaga AB Washed": [
+        ("blackcurrant", "fruity"),
+        ("grapefruit",   "fruity"),
+        ("brown sugar",  "sweet"),
+        ("tomato",       "earthy"),
+    ],
+}
+
+
+# ── Seed runner ───────────────────────────────────────────────────────────────
 
 async def seed_extended(session: AsyncSession) -> None:
     now = datetime.now(timezone.utc)
 
-    # ── Fetch store IDs ────────────────────────────────────────────────────────
-    print("\nFetching store IDs...")
-    store_rows = await session.execute(text("SELECT id, domain FROM stores"))
-    store_ids: dict[str, str] = {row.domain: str(row.id) for row in store_rows}
-    if not store_ids:
-        print("  ⚠ No stores found — run seed.py first")
-        return
-    print(f"  ✓ {len(store_ids)} stores found")
+    # Fetch stores and beans
+    store_rows = (await session.execute(select(Store))).scalars().all()
+    store_ids = {s.domain: s.id for s in store_rows}
+    bean_rows = (await session.execute(select(CanonicalBean))).scalars().all()
+    bean_ids = {b.canonical_name: b.id for b in bean_rows}
 
-    # ── Fetch canonical bean IDs ───────────────────────────────────────────────
-    print("\nFetching canonical bean IDs...")
-    bean_rows = await session.execute(text("SELECT id, canonical_name FROM canonical_beans"))
-    bean_ids: dict[str, str] = {row.canonical_name: str(row.id) for row in bean_rows}
-    if not bean_ids:
-        print("  ⚠ No canonical beans found — run seed.py first")
-        return
-    print(f"  ✓ {len(bean_ids)} beans found")
+    print(f"Found {len(store_ids)} stores, {len(bean_ids)} beans")
 
-    # ── Seed listings + variants + price history ───────────────────────────────
-    print("\nSeeding bean listings, variants, and price history...")
+    # ── Flavour taxonomy ──────────────────────────────────────────────────────
+    print("Seeding flavour taxonomy...")
+    family_ids: dict[str, object] = {}
+    for fam in FLAVOUR_FAMILIES:
+        existing = (await session.execute(
+            select(FlavourTaxonomy).where(FlavourTaxonomy.slug == fam["slug"])
+        )).scalar_one_or_none()
+        if existing is None:
+            ft = FlavourTaxonomy(
+                slug=fam["slug"],
+                label=fam["label"],
+                colour=fam["colour"],
+                depth=0,
+                sort_order=fam["sort_order"],
+                synonyms=[],
+            )
+            session.add(ft)
+            await session.flush()
+            family_ids[fam["slug"]] = ft.id
+            print(f"  + {fam['label']}")
+        else:
+            family_ids[fam["slug"]] = existing.id
+    await session.flush()
+
+    # ── Listings, variants, price history ─────────────────────────────────────
+    print("Seeding listings and price history...")
     for spec in LISTING_SPECS:
-        bean_name = spec["bean_key"]
-        store_domain = spec["store"]
-        bean_id = bean_ids.get(bean_name)
-        store_id = store_ids.get(store_domain)
-
-        if not bean_id or not store_id:
-            print(f"  ⚠ Skipping {bean_name[:30]} @ {store_domain} — not found")
+        store_id = store_ids.get(spec["store"])
+        bean_id = bean_ids.get(spec["bean_key"])
+        if not store_id or not bean_id:
+            print(f"  ⚠ Skipping {spec['raw_title']} — store or bean not found")
             continue
 
-        content = hashlib.sha256(f"{spec['raw_title']}{spec['variants']}".encode()).hexdigest()
+        content_hash = hashlib.sha256(
+            f"{spec['raw_title']}{spec['product_url']}".encode()
+        ).hexdigest()
 
-        # Upsert bean_listing
-        listing_row = await session.execute(text("""
-            INSERT INTO bean_listings (
-                store_id, canonical_bean_id, raw_title, product_url,
-                listing_status, active_flag, first_seen_at, last_seen_at,
-                content_hash
-            ) VALUES (
-                :store_id::uuid, :bean_id::uuid, :raw_title, :product_url,
-                'active'::listing_status, true, :first_seen, :first_seen,
-                :content_hash
+        # Find or create listing
+        existing_listing = (await session.execute(
+            select(BeanListing).where(
+                BeanListing.store_id == store_id,
+                BeanListing.canonical_bean_id == bean_id,
             )
-            ON CONFLICT DO NOTHING
-            RETURNING id
-        """), {
-            "store_id": store_id, "bean_id": bean_id,
-            "raw_title": spec["raw_title"], "product_url": spec["product_url"],
-            "first_seen": now - timedelta(days=60),
-            "content_hash": content,
-        })
-        listing_id_row = listing_row.fetchone()
-        if not listing_id_row:
-            # Already exists — fetch it
-            existing = await session.execute(text("""
-                SELECT id FROM bean_listings
-                WHERE store_id = :store_id::uuid AND canonical_bean_id = :bean_id::uuid
-                  AND raw_title = :raw_title
-                LIMIT 1
-            """), {"store_id": store_id, "bean_id": bean_id, "raw_title": spec["raw_title"]})
-            row = existing.fetchone()
-            if not row:
-                continue
-            listing_id = str(row.id)
+        )).scalar_one_or_none()
+
+        if existing_listing is None:
+            listing = BeanListing(
+                store_id=store_id,
+                canonical_bean_id=bean_id,
+                raw_title=spec["raw_title"],
+                product_url=spec["product_url"],
+                listing_status="active",
+                active_flag=True,
+                first_seen_at=now - timedelta(days=60),
+                last_seen_at=now,
+                content_hash=content_hash,
+            )
+            session.add(listing)
+            await session.flush()
+            print(f"  + {spec['raw_title']} @ {spec['store']}")
         else:
-            listing_id = str(listing_id_row.id)
+            listing = existing_listing
 
-        # Variants + history
+        # Variants and price history
         for v in spec["variants"]:
-            p100 = _p100(v["base_price"], v["weight_g"])
-            variant_row = await session.execute(text("""
-                INSERT INTO listing_variants (
-                    bean_listing_id, variant_title_raw, weight_g,
-                    grind_type, price_gbp, price_per_100g_gbp,
-                    availability_status, sku, seller_variant_id, recorded_at
-                ) VALUES (
-                    :listing_id::uuid, :title, :weight_g,
-                    :grind::grind_type, :price, :p100,
-                    :avail::availability_status, :sku, :sku, :now
+            existing_variant = (await session.execute(
+                select(ListingVariant).where(ListingVariant.sku == v["sku"])
+            )).scalar_one_or_none()
+
+            if existing_variant is None:
+                variant = ListingVariant(
+                    bean_listing_id=listing.id,
+                    variant_title_raw=v["title"],
+                    weight_g=v["weight_g"],
+                    grind_type=v["grind"],
+                    price_gbp=v["base_price"],
+                    price_per_100g_gbp=p100(v["base_price"], v["weight_g"]),
+                    currency_code="GBP",
+                    availability_status=v["avail"],
+                    sku=v["sku"],
+                    seller_variant_id=v["sku"],
                 )
-                ON CONFLICT DO NOTHING
-                RETURNING id
-            """), {
-                "listing_id": listing_id, "title": v["title"],
-                "weight_g": v["weight_g"], "grind": v["grind"],
-                "price": v["base_price"], "p100": p100,
-                "avail": v["avail"], "sku": v["sku"], "now": now,
-            })
-            variant_id_row = variant_row.fetchone()
-            if not variant_id_row:
-                existing_v = await session.execute(text(
-                    "SELECT id FROM listing_variants WHERE sku = :sku LIMIT 1"
-                ), {"sku": v["sku"]})
-                row_v = existing_v.fetchone()
-                if not row_v:
-                    continue
-                variant_id = str(row_v.id)
-            else:
-                variant_id = str(variant_id_row.id)
+                session.add(variant)
+                await session.flush()
 
-            # 60 days of price history (daily snapshots with realistic drift)
-            for day in range(60):
-                ts = now - timedelta(days=59 - day)
-                hist_price = _synth_price(v["base_price"], day)
-                hist_p100 = _p100(hist_price, v["weight_g"])
-                await session.execute(text("""
-                    INSERT INTO price_history (
-                        listing_variant_id, price_gbp, price_per_100g_gbp,
-                        availability_status, recorded_at
-                    ) VALUES (
-                        :vid::uuid, :price, :p100, :avail::availability_status, :ts
-                    )
-                    ON CONFLICT DO NOTHING
-                """), {
-                    "vid": variant_id, "price": hist_price,
-                    "p100": hist_p100, "avail": v["avail"], "ts": ts,
-                })
+                # 60 days of price history
+                for day in range(60, -1, -1):
+                    price = synth_price(v["base_price"], day)
+                    session.add(PriceHistory(
+                        listing_variant_id=variant.id,
+                        price_gbp=price,
+                        price_per_100g_gbp=p100(price, v["weight_g"]),
+                        availability_status=v["avail"],
+                        recorded_at=now - timedelta(days=day),
+                    ))
 
-        print(f"  ✓ {bean_name[:35]:<35} @ {store_domain}")
+    await session.flush()
 
-    # ── Seed flavour taxonomy ──────────────────────────────────────────────────
-    print("\nSeeding flavour taxonomy...")
-    # Insert families first, then categories, then tags (depth order)
-    slug_to_id: dict[str, str] = {}
-
-    for depth in [0, 1, 2]:
-        nodes = [n for n in TAXONOMY if n["depth"] == depth]
-        for node in nodes:
-            parent_id = slug_to_id.get(node["parent"]) if node["parent"] else None
-            result = await session.execute(text("""
-                INSERT INTO flavour_taxonomy (slug, label, depth, parent_id, colour, synonyms, sort_order)
-                VALUES (:slug, :label, :depth, :parent_id::uuid, :colour, :synonyms, :sort_order)
-                ON CONFLICT (slug) DO UPDATE SET label = EXCLUDED.label, synonyms = EXCLUDED.synonyms
-                RETURNING id, slug
-            """), {
-                "slug": node["slug"], "label": node["label"], "depth": node["depth"],
-                "parent_id": parent_id, "colour": node.get("colour"),
-                "synonyms": node["synonyms"], "sort_order": node.get("sort_order", 0),
-            })
-            row = result.fetchone()
-            if row:
-                slug_to_id[row.slug] = str(row.id)
-
-    print(f"  ✓ {len(TAXONOMY)} taxonomy nodes")
-
-    # ── Seed bean_flavour_tags (rule-based, from existing flavour_notes) ───────
-    print("\nSeeding bean flavour tags...")
-    from app.services.taste.normaliser import match_note
-
-    bean_note_rows = await session.execute(
-        text("SELECT id, flavour_notes FROM canonical_beans WHERE array_length(flavour_notes, 1) > 0")
-    )
-    tag_count = 0
-    for row in bean_note_rows:
-        bean_id = str(row.id)
-        notes: list[str] = row.flavour_notes or []
-        for note in notes:
-            match = match_note(note)
-            if match is None:
-                continue
-            tax_id = slug_to_id.get(match.slug)
+    # ── Bean flavour tags ─────────────────────────────────────────────────────
+    print("Seeding flavour tags...")
+    for bean_name, tags in BEAN_FLAVOUR_TAGS.items():
+        bean_id = bean_ids.get(bean_name)
+        if not bean_id:
+            continue
+        for note, family_slug in tags:
+            tax_id = family_ids.get(family_slug)
             if not tax_id:
                 continue
-            await session.execute(text("""
-                INSERT INTO bean_flavour_tags
-                    (bean_id, taxonomy_id, raw_note, confidence, source, review_status)
-                VALUES
-                    (:bean_id::uuid, :tax_id::uuid, :raw_note, :conf, 'rule', 'accepted')
-                ON CONFLICT (bean_id, taxonomy_id, raw_note) DO NOTHING
-            """), {
-                "bean_id": bean_id, "tax_id": tax_id,
-                "raw_note": note, "conf": match.confidence,
-            })
-            tag_count += 1
-
-    print(f"  ✓ {tag_count} flavour tags created")
+            existing = (await session.execute(
+                select(BeanFlavourTag).where(
+                    BeanFlavourTag.bean_id == bean_id,
+                    BeanFlavourTag.raw_note == note,
+                )
+            )).scalar_one_or_none()
+            if existing is None:
+                session.add(BeanFlavourTag(
+                    bean_id=bean_id,
+                    taxonomy_id=tax_id,
+                    raw_note=note,
+                    confidence=0.9,
+                    source="rule",
+                    review_status="accepted",
+                ))
 
     await session.commit()
-    print("\n✅ Extended seed complete.")
+    print("\nExtended seed complete!")
 
 
 async def main() -> None:
-    engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with async_session() as session:
+    engine = create_async_engine(DATABASE_URL, echo=False)
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as session:
         await seed_extended(session)
     await engine.dispose()
 

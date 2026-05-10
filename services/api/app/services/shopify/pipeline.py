@@ -54,6 +54,7 @@ from app.models.enums import PageType, ParserStrategy
 from app.services.shopify.client import FetchedPage, ShopifyClient
 from app.services.shopify.hashing import compute_product_hash
 from app.services.shopify.parser import parse_product_fields, parse_variant
+from app.services.shopify.coffee_classifier import is_coffee_product
 from app.services.storage.backend import StorageBackend, compute_hash, get_storage_backend
 
 log = logging.getLogger(__name__)
@@ -129,15 +130,21 @@ class ShopifyIngestionPipeline:
             # Mark products absent from this feed run as inactive
             await self._deactivate_missing(seen_seller_ids)
 
-            # Update store crawl timestamp
-            await self._update_store_crawl_time()
-
+            # Only stamp the "successful crawl" timestamp on a clean run.
+            # Health signals downstream (StoreListItem.health_status) depend on
+            # this — bumping it on a partial run hides real problems from the UI.
             status = RunStatus.partial if self.counters.errors else RunStatus.completed
+            if status == RunStatus.completed:
+                await self._update_store_crawl_time()
             return await self._close_run(status)
 
         except Exception as exc:
             log.error("Pipeline failure for %s: %s", self.store.domain, exc, exc_info=True)
-            self.counters.error(f"Pipeline exception: {exc}", detail=repr(exc))
+            bucket = _classify_pipeline_exception(exc)
+            self.counters.error(
+                f"{bucket}: {exc}",
+                detail=repr(exc),
+            )
             return await self._close_run(RunStatus.failed)
 
     # ── Page processing ───────────────────────────────────────────────────────
@@ -193,6 +200,17 @@ class ShopifyIngestionPipeline:
           - Product hash changed   → update listing fields + variants + price history
           - New product            → insert listing + variants + price history
         """
+        # ── Filter: only process coffee products ─────────────────────────────
+        is_coffee, reason = is_coffee_product(product)
+        if not is_coffee:
+            log.debug(
+                "Skipping non-coffee product '%s': %s",
+                product.get("title", ""),
+                reason,
+            )
+            self.counters.records_seen -= 1  # don't count as seen
+            return
+
         product_hash = compute_product_hash(product)
         seller_product_id = str(product.get("id", ""))
         product_handle = product.get("handle", "")
@@ -470,3 +488,44 @@ class ShopifyIngestionPipeline:
             len(self.counters.errors), duration,
         )
         return self._run
+
+
+def _classify_pipeline_exception(exc: BaseException) -> str:
+    """
+    Map a top-level pipeline exception to a short, human-readable bucket
+    label so the recorded error message tells operators *what kind* of
+    failure happened without needing to read tracebacks.
+
+    The buckets are surfaced in admin-app's "why?" expand-row.
+    """
+    name = type(exc).__name__
+    msg = str(exc).lower()
+
+    # httpx-specific
+    try:
+        import httpx
+        if isinstance(exc, httpx.ConnectError):
+            return "DNS_OR_CONNECT_ERROR"
+        if isinstance(exc, httpx.TimeoutException):
+            return "TIMEOUT"
+        if isinstance(exc, httpx.TooManyRedirects):
+            return "REDIRECT_LOOP"
+        if isinstance(exc, httpx.HTTPStatusError):
+            code = getattr(getattr(exc, "response", None), "status_code", "")
+            return f"HTTP_{code}" if code else "HTTP_ERROR"
+    except ImportError:
+        pass
+
+    # SSL / TLS
+    if "ssl" in name.lower() or "ssl" in msg or "certificate" in msg:
+        return "SSL_ERROR"
+
+    # JSON / parse — store served HTML when we asked for JSON, or truncated body
+    if name in ("JSONDecodeError",) or "json" in msg and "decode" in msg:
+        return "FEED_NOT_JSON"
+
+    # DB — sqlalchemy/asyncpg classes
+    if "sqlalchemy" in type(exc).__module__ or "asyncpg" in type(exc).__module__:
+        return "DATABASE_ERROR"
+
+    return f"UNHANDLED_{name}"

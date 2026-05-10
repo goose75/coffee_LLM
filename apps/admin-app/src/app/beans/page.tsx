@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { getCanonicalBeans, type CanonicalBean } from "@/lib/api";
-import { Badge, DataTable, SkeletonRows, PageHeader, Pagination, EmptyState, ErrorBanner, FilterBar, FilterSearch, FilterSelect, CompletenessRing } from "@/components/ui";
+import { getCanonicalBeans, bulkEnhance, type CanonicalBean } from "@/lib/api";
+import { Badge, Btn, DataTable, SkeletonRows, PageHeader, Pagination, EmptyState, ErrorBanner, FilterBar, FilterSearch, FilterSelect, CompletenessRing } from "@/components/ui";
 
 export default function BeansPage() {
   const [beans, setBeans] = useState<CanonicalBean[]>([]);
@@ -14,6 +14,8 @@ export default function BeansPage() {
   const [roastFilter, setRoastFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [banner, setBanner] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,13 +28,42 @@ export default function BeansPage() {
     finally { setLoading(false); }
   }, [q, processFilter, roastFilter, page]);
 
+  const runBulkEnhance = async () => {
+    if (!confirm("Auto-enhance all beans with completeness < 50%? Only suggestions ≥90% confidence will be applied.")) return;
+    setBulkRunning(true);
+    try {
+      const r = await bulkEnhance({ max_completeness: 0.5, limit: 200, auto_apply_threshold: 0.9 });
+      setBanner(
+        `Enhance: examined ${r.beans_examined}, updated ${r.beans_updated} bean(s), ` +
+        `${r.fields_updated_total} fields filled. ${r.skipped_no_listings} had no listings, ` +
+        `${r.skipped_no_suggestions} had no consensus.`
+      );
+      await load();
+    } catch (e: any) { setError(e.message); }
+    finally { setBulkRunning(false); }
+  };
+
   useEffect(() => { setPage(1); }, [q, processFilter, roastFilter]);
   useEffect(() => { load(); }, [load]);
 
   return (
     <div className="p-6 max-w-6xl">
-      <PageHeader title="Canonical Beans" subtitle={`${total} deduplicated coffee entities`} />
+      <PageHeader
+        title="Canonical Beans"
+        subtitle={`${total} deduplicated coffee entities`}
+        actions={
+          <Btn onClick={runBulkEnhance} disabled={bulkRunning} variant="primary">
+            {bulkRunning ? "Enhancing…" : "✨ Bulk enhance sparse"}
+          </Btn>
+        }
+      />
 
+      {banner && (
+        <div className="mb-4 px-4 py-2.5 bg-emerald-900/20 border border-emerald-800/50 rounded text-sm text-emerald-400 flex items-center justify-between">
+          {banner}
+          <button onClick={() => setBanner(null)} className="text-emerald-700 hover:text-emerald-400">×</button>
+        </div>
+      )}
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
 
       <FilterBar>

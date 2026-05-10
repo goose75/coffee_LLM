@@ -351,15 +351,22 @@ class SelectolaxExtractor:
         return ""
 
     def multi_text(self, rule: SelectorRule) -> list[str]:
+        # Aggregate across ALL selectors. Variant rules cover several sibling
+        # <select>s (size, weight, grind) — returning only the first hit
+        # would miss the others.
+        collected: list[str] = []
+        seen: set[str] = set()
         for selector in rule.selectors:
             try:
                 nodes = self._tree.css(selector)
-                texts = [n.text(strip=True) for n in nodes if n.text(strip=True)]
-                if texts:
-                    return texts
+                for n in nodes:
+                    t = n.text(strip=True)
+                    if t and t not in seen:
+                        seen.add(t)
+                        collected.append(t)
             except Exception:
                 continue
-        return []
+        return collected
 
     def extract_attributes(self, rule: SelectorRule) -> dict[str, str]:
         """Extract key-value pairs from a product attributes table."""
@@ -370,12 +377,21 @@ class SelectolaxExtractor:
                 if selector.endswith("tr"):
                     rows = self._tree.css(selector)
                     for row in rows:
-                        cells = row.css("td, th")
-                        if len(cells) >= 2:
-                            key = cells[0].text(strip=True).lower().rstrip(":")
-                            value = cells[1].text(strip=True)
-                            if key and value:
-                                result[key] = value
+                        # Prefer the th=label / td=value pattern (WooCommerce).
+                        # `row.css("td, th")` in selectolax does not preserve
+                        # document order, so we look up each tag individually.
+                        ths = row.css("th")
+                        tds = row.css("td")
+                        if ths and tds:
+                            key = ths[0].text(strip=True).lower().rstrip(":")
+                            value = tds[0].text(strip=True)
+                        elif len(tds) >= 2:
+                            key = tds[0].text(strip=True).lower().rstrip(":")
+                            value = tds[1].text(strip=True)
+                        else:
+                            continue
+                        if key and value:
+                            result[key] = value
                 # Handle <dt>/<dd> pairs
                 elif selector.endswith("dt"):
                     dts = self._tree.css(selector)
@@ -429,16 +445,19 @@ class BS4Extractor:
         return ""
 
     def multi_text(self, rule: SelectorRule) -> list[str]:
+        collected: list[str] = []
+        seen: set[str] = set()
         for selector in rule.selectors:
             try:
                 els = self._soup.select(selector)
-                texts = [e.get_text(strip=True) for e in els]
-                texts = [t for t in texts if t]
-                if texts:
-                    return texts
+                for e in els:
+                    t = e.get_text(strip=True)
+                    if t and t not in seen:
+                        seen.add(t)
+                        collected.append(t)
             except Exception:
                 continue
-        return []
+        return collected
 
     def extract_attributes(self, rule: SelectorRule) -> dict[str, str]:
         result: dict[str, str] = {}

@@ -35,11 +35,18 @@ def _coffee_aggregates(bean: CanonicalBean) -> dict:
     all_prices = [float(v.price_gbp) for l in active for v in l.variants]
     avail_prices = [float(v.price_gbp) for l in active for v in l.variants if v.availability_status != "out_of_stock"]
     store_ids = {l.store_id for l in active}
+    # Price per 100g — use best available across all variants
+    per_100g_prices = [
+        float(v.price_per_100g_gbp)
+        for l in active for v in l.variants
+        if v.price_per_100g_gbp is not None and v.availability_status != "out_of_stock"
+    ]
     return {
         "listing_count": len(active),
         "store_count": len(store_ids),
         "min_price_gbp": min(avail_prices) if avail_prices else None,
         "max_price_gbp": max(all_prices) if all_prices else None,
+        "min_price_per_100g_gbp": min(per_100g_prices) if per_100g_prices else None,
     }
 
 
@@ -156,6 +163,7 @@ async def list_coffees(
         item.listing_count = agg["listing_count"]
         item.store_count = agg["store_count"]
         item.min_price_gbp = agg["min_price_gbp"]
+        item.min_price_per_100g_gbp = agg.get("min_price_per_100g_gbp")
         item.max_price_gbp = agg["max_price_gbp"]
         items.append(item)
 
@@ -188,6 +196,7 @@ async def get_coffee(coffee_id: str, db: AsyncSession = Depends(get_db)) -> Coff
     item.listing_count = agg["listing_count"]
     item.store_count = agg["store_count"]
     item.min_price_gbp = agg["min_price_gbp"]
+    item.min_price_per_100g_gbp = agg.get("min_price_per_100g_gbp")
     item.max_price_gbp = agg["max_price_gbp"]
     item.listings = _hydrate_listings(active, store_map)
     return item
@@ -296,6 +305,7 @@ async def new_releases(
         item.listing_count = agg["listing_count"]
         item.store_count = agg["store_count"]
         item.min_price_gbp = agg["min_price_gbp"]
+        item.min_price_per_100g_gbp = agg.get("min_price_per_100g_gbp")
         item.max_price_gbp = agg["max_price_gbp"]
         # Surface the most-recent listing timestamp for the new-releases feed
         newest = max(
@@ -349,7 +359,39 @@ async def store_listings(
         item.listing_count = agg["listing_count"]
         item.store_count = agg["store_count"]
         item.min_price_gbp = agg["min_price_gbp"]
+        item.min_price_per_100g_gbp = agg.get("min_price_per_100g_gbp")
         item.max_price_gbp = agg["max_price_gbp"]
         items.append(item)
 
     return PaginatedCoffees(data=items, total=total, page=page, page_size=page_size, has_next=(page * page_size) < total)
+
+@router.get("/market/averages")
+async def get_market_averages(db: AsyncSession = Depends(get_db)) -> dict:
+    """
+    Return market-wide price statistics for value comparison.
+    Used by browse cards to show ValueBadge (good value / premium).
+    """
+    from sqlalchemy import text as sql_text
+    result = await db.execute(sql_text("""
+        SELECT
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY lv.price_per_100g_gbp) as median_per_100g,
+            AVG(lv.price_per_100g_gbp) as mean_per_100g,
+            MIN(lv.price_per_100g_gbp) as min_per_100g,
+            MAX(lv.price_per_100g_gbp) as max_per_100g,
+            COUNT(DISTINCT bl.canonical_bean_id) as sample_size
+        FROM listing_variants lv
+        JOIN bean_listings bl ON bl.id = lv.bean_listing_id
+        WHERE bl.active_flag = true
+        AND lv.price_per_100g_gbp IS NOT NULL
+        AND lv.price_per_100g_gbp > 0
+        AND lv.price_per_100g_gbp < 50
+        AND lv.availability_status != 'out_of_stock'
+    """))
+    row = result.one()
+    return {
+        "median_per_100g_gbp": round(float(row.median_per_100g), 2) if row.median_per_100g else None,
+        "mean_per_100g_gbp": round(float(row.mean_per_100g), 2) if row.mean_per_100g else None,
+        "min_per_100g_gbp": round(float(row.min_per_100g), 2) if row.min_per_100g else None,
+        "max_per_100g_gbp": round(float(row.max_per_100g), 2) if row.max_per_100g else None,
+        "sample_size": row.sample_size,
+    }

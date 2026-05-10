@@ -236,12 +236,18 @@ class LLMParser:
                 errors=validated.validation_errors,
             )
 
-        # Partial if there were validation warnings
-        if validated.validation_errors:
+        # Partial only if a sanity-check (data-quality) issue was raised.
+        # Extraction-step messages like "code fences stripped" or "preamble
+        # stripped" are informational — they don't compromise the payload.
+        sanity_errors = [
+            e for e in validated.validation_errors
+            if "code fences" not in e and "preamble" not in e
+        ]
+        if sanity_errors:
             return ExtractionResult.partial(
                 payload=validated.payload,
                 method="llm",
-                errors=validated.validation_errors,
+                errors=sanity_errors,
             )
 
         return ExtractionResult(

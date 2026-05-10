@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSIONS: int = 1536
 
     # ── Confidence Thresholds ─────────────────────────────────────────────────
-    CONFIDENCE_AUTO_ACCEPT: float = 0.92
-    CONFIDENCE_REVIEW_QUEUE: float = 0.75
+    CONFIDENCE_AUTO_ACCEPT: float = 0.78
+    CONFIDENCE_REVIEW_QUEUE: float = 0.55
 
 
 settings = Settings()

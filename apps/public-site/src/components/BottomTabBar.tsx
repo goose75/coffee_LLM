@@ -82,12 +82,42 @@ function SearchIcon({ filled }: { filled: boolean }) {
 
 // ── Tab configuration ─────────────────────────────────────────────────────────
 
+function AtlasIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={filled ? 0 : 1.6} strokeLinecap="round" strokeLinejoin="round">
+      {filled ? (
+        <>
+          <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+          <circle cx="12" cy="4"  r="1.5" fill="currentColor" opacity=".7" />
+          <circle cx="19" cy="8"  r="1.5" fill="currentColor" opacity=".7" />
+          <circle cx="19" cy="16" r="1.5" fill="currentColor" opacity=".7" />
+          <circle cx="12" cy="20" r="1.5" fill="currentColor" opacity=".7" />
+          <circle cx="5"  cy="16" r="1.5" fill="currentColor" opacity=".7" />
+          <circle cx="5"  cy="8"  r="1.5" fill="currentColor" opacity=".7" />
+        </>
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="2.5" />
+          <circle cx="12" cy="4"  r="1.5" />
+          <circle cx="19" cy="8"  r="1.5" />
+          <circle cx="19" cy="16" r="1.5" />
+          <circle cx="12" cy="20" r="1.5" />
+          <circle cx="5"  cy="16" r="1.5" />
+          <circle cx="5"  cy="8"  r="1.5" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+
 const TABS = [
-  { href: "/",             label: "Home",     Icon: HomeIcon   },
-  { href: "/coffees",      label: "Browse",   Icon: GridIcon   },
-  { href: "/new-releases", label: "New",      Icon: SparkleIcon },
-  { href: "/roasters",     label: "Roasters", Icon: ShopIcon   },
-  { href: "/search",       label: "Search",   Icon: SearchIcon },
+  { href: "/",               label: "Home",    Icon: HomeIcon    },
+  { href: "/coffees",        label: "Browse",  Icon: GridIcon    },
+  { href: "/flavour-atlas",  label: "Atlas",   Icon: AtlasIcon   },
+  { href: "/roasters",       label: "Roasters",Icon: ShopIcon    },
+  { href: "/search",         label: "Search",  Icon: SearchIcon  },
 ] as const;
 
 // ── Component ─────────────────────────────────────────────────────────────────

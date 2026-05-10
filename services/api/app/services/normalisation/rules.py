@@ -46,9 +46,9 @@ ROAST_RULES: list[Rule] = [
     _rule(r"\bmedium[\s\-]light\b", "medium_light"),
     _rule(r"\bfull[\s\-]city\+\b", "medium_dark"),
     _rule(r"\bfull[\s\-]city\b", "medium_dark"),
-    _rule(r"\bcity\+\b", "medium_light"),
+    _rule(r"\bcity\+", "medium_light"),
     _rule(r"\bcity[\s\-]roast\b", "medium"),
-    _rule(r"\blight[\s\-]?(?:roast|roasted|filter)?\b", "light"),
+    _rule(r"\blight(?:ly)?[\s\-]?(?:roast|roasted|filter)?\b", "light"),
     _rule(r"\bfilter[\s\-]roast\b", "light"),
     _rule(r"\bblonde\b", "light"),
     _rule(r"\b(?:nordic|scandinavian|filter|modern)\s*roast\b", "light"),
@@ -59,7 +59,7 @@ ROAST_RULES: list[Rule] = [
     _rule(r"\bdark[\s\-]?roast\b", "dark"),
     _rule(r"\bmedium\b", "medium"),
     _rule(r"\bdark\b", "dark"),
-    _rule(r"\blight\b", "light"),
+    _rule(r"\blight(?:ly)?\b", "light"),
 ]
 
 # ─── Grind type rules ─────────────────────────────────────────────────────────

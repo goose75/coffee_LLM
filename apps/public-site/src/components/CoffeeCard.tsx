@@ -1,13 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { useCompare } from "@/components/CompareContext";
+import { ValueBadge } from "@/components/PriceIntelligence";
 import type { Coffee } from "@/lib/api";
 
 const PROCESS_COLORS: Record<string, string> = {
-  washed: "#6b9e8c",
-  natural: "#c4763a",
-  honey: "#d4a03a",
-  anaerobic: "#8b6bab",
-  wet_hulled: "#5a7fa8",
-  carbonic_maceration: "#a85a7f",
+  washed: "#6b9e8c", natural: "#c4763a", honey: "#d4a03a",
+  anaerobic: "#8b6bab", wet_hulled: "#5a7fa8", carbonic_maceration: "#a85a7f",
   experimental: "#7f7f7f",
 };
 
@@ -30,143 +30,180 @@ function RoastBar({ level }: { level: string | null }) {
   return (
     <div className="flex items-center gap-1">
       {levels.map((l, i) => (
-        <div
-          key={l}
-          className="h-1 flex-1 rounded-full transition-colors"
-          style={{ backgroundColor: i <= idx ? "var(--accent)" : "var(--border)" }}
-        />
+        <div key={l} className="h-1 flex-1 rounded-full transition-colors"
+          style={{ backgroundColor: i <= idx ? "var(--accent)" : "var(--border)" }} />
       ))}
     </div>
+  );
+}
+
+function CompareButton({ coffee }: { coffee: Coffee }) {
+  const { has, add, remove, items } = useCompare();
+  const inCompare = has(coffee.id);
+  const full = items.length >= 3 && !inCompare;
+
+  return (
+    <button
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (inCompare) remove(coffee.id);
+        else if (!full) add(coffee.id, coffee.canonical_name);
+      }}
+      disabled={full}
+      aria-label={inCompare ? "Remove from compare" : "Add to compare"}
+      title={full ? "Maximum 3 coffees" : inCompare ? "Remove from compare" : "Add to compare"}
+      style={{
+        position: "absolute",
+        top: 10,
+        right: 10,
+        width: 26,
+        height: 26,
+        borderRadius: "50%",
+        border: inCompare ? "none" : "1.5px solid var(--border)",
+        background: inCompare ? "var(--accent)" : "var(--surface)",
+        color: inCompare ? "white" : "var(--text-faint)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: full ? "not-allowed" : "pointer",
+        opacity: full ? 0.3 : 1,
+        transition: "all 0.15s",
+        zIndex: 2,
+        fontSize: 13,
+        lineHeight: 1,
+      }}
+    >
+      {inCompare ? "✓" : "+"}
+    </button>
   );
 }
 
 interface CoffeeCardProps {
   coffee: Coffee;
   layout?: "grid" | "list";
+  marketMedianPer100g?: number | null;
 }
 
-export default function CoffeeCard({ coffee, layout = "grid" }: CoffeeCardProps) {
+export default function CoffeeCard({ coffee, layout = "grid", marketMedianPer100g = null }: CoffeeCardProps) {
   const flagUrl = coffee.origin_country
     ? `https://flagcdn.com/24x18/${getCountryCode(coffee.origin_country)}.png`
     : null;
 
   if (layout === "list") {
     return (
-      <Link href={`/coffees/${coffee.id}`} className="group block">
-        <div
-          className="flex items-center gap-5 py-4 border-b transition-colors group-hover:bg-surface-raised -mx-4 px-4 rounded"
-          style={{ borderColor: "var(--border-light)" }}
-        >
-          <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-lg"
-            style={{ backgroundColor: "var(--bg-warm)" }}>
-            {flagUrl ? <img src={flagUrl} alt="" className="w-6 h-4 object-cover rounded" /> : "☕"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm truncate" style={{ fontFamily: "var(--font-display)", fontSize: "1rem" }}>
-              {coffee.canonical_name}
+      <div className="group relative block">
+        <Link href={`/coffees/${coffee.id}`}>
+          <div className="flex items-center gap-5 py-4 border-b transition-colors group-hover:bg-surface-raised -mx-4 px-4 rounded"
+            style={{ borderColor: "var(--border-light)" }}>
+            <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-lg"
+              style={{ backgroundColor: "var(--bg-warm)" }}>
+              {flagUrl ? <img src={flagUrl} alt="" className="w-6 h-4 object-cover rounded" /> : "☕"}
             </div>
-            <div className="flex items-center gap-3 mt-0.5">
-              <ProcessDot process={coffee.process} />
-              {coffee.origin_region && <span className="text-xs" style={{ color: "var(--text-faint)" }}>{coffee.origin_region}</span>}
-            </div>
-          </div>
-          <div className="text-right flex-shrink-0">
-            {coffee.min_price_gbp != null && (
-              <div className="text-sm font-medium" style={{ color: "var(--text)" }}>
-                from £{coffee.min_price_gbp.toFixed(2)}
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-sm truncate"
+                style={{ fontFamily: "var(--font-display)", fontSize: "1rem" }}>
+                {coffee.canonical_name}
               </div>
-            )}
-            <div className="text-xs" style={{ color: "var(--text-faint)" }}>{coffee.store_count ?? 0} stores</div>
+              <div className="flex items-center gap-3 mt-0.5">
+                <ProcessDot process={coffee.process} />
+                {coffee.origin_region && (
+                  <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+                    {coffee.origin_region}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0 pr-8">
+              {coffee.min_price_gbp != null && (
+                <div className="text-sm font-medium" style={{ color: "var(--text)" }}>
+                  from £{coffee.min_price_gbp.toFixed(2)}
+                </div>
+              )}
+              <div className="text-xs" style={{ color: "var(--text-faint)" }}>
+                {coffee.store_count ?? 0} stores
+              </div>
+            </div>
           </div>
-        </div>
-      </Link>
+        </Link>
+        <CompareButton coffee={coffee} />
+      </div>
     );
   }
 
   return (
-    <Link href={`/coffees/${coffee.id}`} className="group block">
-      <article
-        className="h-full rounded-2xl overflow-hidden transition-all duration-300 group-hover:-translate-y-0.5"
-        style={{
-          backgroundColor: "var(--surface)",
-          border: "1px solid var(--border-light)",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-        }}
-      >
-        {/* Top colour strip by process */}
-        <div className="h-1 w-full" style={{
-          backgroundColor: PROCESS_COLORS[coffee.process ?? ""] ?? "var(--border)"
-        }} />
-
-        <div className="p-5">
-          {/* Origin flag + location */}
-          <div className="flex items-center gap-2 mb-3">
-            {flagUrl && <img src={flagUrl} alt="" className="w-5 h-3.5 object-cover rounded-sm" />}
-            <span className="text-xs tracking-wide uppercase" style={{ color: "var(--text-faint)" }}>
-              {[coffee.origin_country, coffee.origin_region].filter(Boolean).join(" · ")}
-            </span>
-          </div>
-
-          {/* Name */}
-          <h3
-            className="leading-snug mb-2 group-hover:opacity-80 transition-opacity"
-            style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 500 }}
-          >
-            {coffee.canonical_name}
-          </h3>
-
-          {/* Farm */}
-          {coffee.farm_or_estate && (
-            <p className="text-xs mb-3 truncate" style={{ color: "var(--text-faint)" }}>
-              {coffee.farm_or_estate}
-            </p>
-          )}
-
-          {/* Flavour notes */}
-          {coffee.flavour_notes.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-4">
-              {coffee.flavour_notes.slice(0, 3).map((note) => (
-                <span
-                  key={note}
-                  className="text-[11px] px-2 py-0.5 rounded-full"
-                  style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)" }}
-                >
-                  {note}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Process + roast */}
-          <div className="flex items-center justify-between mb-3">
-            <ProcessDot process={coffee.process} />
-            {coffee.harvest_year && (
-              <span className="text-[11px]" style={{ color: "var(--text-faint)" }}>
-                {coffee.harvest_year}
+    <div className="group relative block">
+      <Link href={`/coffees/${coffee.id}`} className="block">
+        <article className="h-full rounded-2xl overflow-hidden transition-all duration-300 group-hover:-translate-y-0.5"
+          style={{
+            backgroundColor: "var(--surface)",
+            border: "1px solid var(--border-light)",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+          }}>
+          <div className="h-1 w-full" style={{
+            backgroundColor: PROCESS_COLORS[coffee.process ?? ""] ?? "var(--border)"
+          }} />
+          <div className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              {flagUrl && <img src={flagUrl} alt="" className="w-5 h-3.5 object-cover rounded-sm" />}
+              <span className="text-xs tracking-wide uppercase" style={{ color: "var(--text-faint)" }}>
+                {[coffee.origin_country, coffee.origin_region].filter(Boolean).join(" · ")}
               </span>
+            </div>
+            <h3 className="leading-snug mb-2 group-hover:opacity-80 transition-opacity pr-7"
+              style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 500 }}>
+              {coffee.canonical_name}
+            </h3>
+            {coffee.farm_or_estate && (
+              <p className="text-xs mb-3 truncate" style={{ color: "var(--text-faint)" }}>
+                {coffee.farm_or_estate}
+              </p>
             )}
-          </div>
-
-          <RoastBar level={coffee.roast_level} />
-
-          {/* Price + stores */}
-          <div className="flex items-center justify-between mt-4 pt-4" style={{ borderTop: "1px solid var(--border-light)" }}>
-            <div>
-              {coffee.min_price_gbp != null ? (
-                <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>
-                  from £{coffee.min_price_gbp.toFixed(2)}
+            {coffee.flavour_notes.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-4">
+                {coffee.flavour_notes.slice(0, 3).map((note) => (
+                  <span key={note} className="text-[11px] px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)" }}>
+                    {note}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-between mb-3">
+              <ProcessDot process={coffee.process} />
+              {coffee.harvest_year && (
+                <span className="text-[11px]" style={{ color: "var(--text-faint)" }}>
+                  {coffee.harvest_year}
                 </span>
-              ) : (
-                <span className="text-xs" style={{ color: "var(--text-faint)" }}>Price unavailable</span>
               )}
             </div>
-            <span className="text-[11px]" style={{ color: "var(--text-faint)" }}>
-              {coffee.store_count ?? 0} {(coffee.store_count ?? 0) === 1 ? "store" : "stores"}
-            </span>
+            <RoastBar level={coffee.roast_level} />
+            <div className="flex items-center justify-between mt-4 pt-4"
+              style={{ borderTop: "1px solid var(--border-light)" }}>
+              <div>
+                <div className="flex items-center gap-6px flex-wrap">
+                {coffee.min_price_gbp != null ? (
+                  <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+                    from £{coffee.min_price_gbp.toFixed(2)}
+                  </span>
+                ) : (
+                  <span className="text-xs" style={{ color: "var(--text-faint)" }}>Price unavailable</span>
+                )}
+                <ValueBadge
+                  pricePerHundred={coffee.min_price_per_100g_gbp ?? null}
+                  medianPerHundred={marketMedianPer100g}
+                />
+              </div>
+              </div>
+              <span className="text-[11px]" style={{ color: "var(--text-faint)" }}>
+                {coffee.store_count ?? 0} {(coffee.store_count ?? 0) === 1 ? "store" : "stores"}
+              </span>
+            </div>
           </div>
-        </div>
-      </article>
-    </Link>
+        </article>
+      </Link>
+      <CompareButton coffee={coffee} />
+    </div>
   );
 }
 

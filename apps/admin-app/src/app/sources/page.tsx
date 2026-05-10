@@ -21,6 +21,7 @@ export default function SourcesPage() {
   const [error, setError] = useState<string | null>(null);
   const [actioning, setActioning] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,7 +93,7 @@ export default function SourcesPage() {
         <FilterSelect value={filters.parser_strategy ?? ""} onChange={v => setFilter("parser_strategy", v)} placeholder="All strategies"
           options={["shopify","schema_org","html","llm","unknown"].map(v => ({ value: v, label: v }))} />
         <FilterSelect value={filters.health_status ?? ""} onChange={v => setFilter("health_status", v)} placeholder="All health"
-          options={["healthy","stale","unknown","inactive"].map(v => ({ value: v, label: v }))} />
+          options={["healthy","degraded","failing","stale","unknown","no_pipeline","inactive"].map(v => ({ value: v, label: v }))} />
         <FilterSelect value={filters.uk_region ?? ""} onChange={v => setFilter("uk_region", v)} placeholder="All regions"
           options={["London","South West","Yorkshire","Midlands","Scotland","Wales","East of England"].map(v => ({ value: v, label: v }))} />
         <label className="flex items-center gap-2 text-xs text-neutral-500 cursor-pointer select-none">
@@ -108,14 +109,17 @@ export default function SourcesPage() {
         <span className="ml-auto text-xs text-neutral-600">{total} sources</span>
       </FilterBar>
 
-      <DataTable headers={["Health", "Store / Domain", "Strategy", "Region", "Last crawl", ""]}>
+      <DataTable headers={["Health", "Store / Domain", "Strategy", "Region", "Last run", ""]}>
         {loading ? <SkeletonRows cols={6} /> : stores.length === 0 ? (
           <tr><td colSpan={6}><EmptyState message="No sources. Import the seed CSV to get started." action={<Btn onClick={handleSeed} variant="primary">Import seed CSV</Btn>} /></td></tr>
-        ) : stores.map(store => {
+        ) : stores.flatMap(store => {
           const isActioning = actioning === store.id || actioning === `ingest-${store.id}`;
           const crawlAge = fmtAge(store.last_successful_crawl_at, store.crawl_frequency_hours);
           const stale = store.last_successful_crawl_at && (Date.now() - new Date(store.last_successful_crawl_at).getTime()) / 3_600_000 > store.crawl_frequency_hours * 2;
-          return (
+          const lr = store.last_run;
+          const hasErrors = lr != null && lr.error_count > 0;
+          const isOpen = !!expanded[store.id];
+          const rows = [
             <tr key={store.id} className="border-b border-neutral-800/40 hover:bg-neutral-900/30 transition-colors group">
               <td className="px-4 py-2.5"><Badge value={store.health_status} /></td>
               <td className="px-4 py-2.5">
@@ -130,7 +134,22 @@ export default function SourcesPage() {
               </td>
               <td className="px-4 py-2.5 text-xs text-neutral-500">{store.uk_region ?? "—"}</td>
               <td className="px-4 py-2.5 text-xs">
-                <span className={stale ? "text-amber-500" : "text-neutral-500"}>{crawlAge}</span>
+                <div className="flex items-center gap-2">
+                  <span className={stale ? "text-amber-500" : "text-neutral-500"}>{crawlAge}</span>
+                  {lr && (
+                    <span className="text-[10px] text-neutral-600">
+                      · {lr.records_seen} seen
+                      {lr.error_count > 0 && <span className="text-rose-400 ml-1">· {lr.error_count} err</span>}
+                      {lr.warning_count > 0 && <span className="text-amber-500 ml-1">· {lr.warning_count} warn</span>}
+                    </span>
+                  )}
+                  {hasErrors && (
+                    <button
+                      onClick={() => setExpanded(e => ({ ...e, [store.id]: !e[store.id] }))}
+                      className="text-[10px] text-neutral-500 hover:text-neutral-200 underline"
+                    >{isOpen ? "hide" : "why?"}</button>
+                  )}
+                </div>
               </td>
               <td className="px-4 py-2.5 text-right">
                 <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -147,7 +166,31 @@ export default function SourcesPage() {
                 </div>
               </td>
             </tr>
-          );
+          ];
+          if (isOpen && lr) {
+            rows.push(
+              <tr key={`${store.id}-detail`} className="bg-neutral-950/60 border-b border-neutral-800/40">
+                <td colSpan={6} className="px-6 py-3">
+                  <div className="text-[11px] uppercase tracking-wider text-neutral-600 mb-2">
+                    Last run · {lr.status} · {new Date(lr.started_at).toLocaleString()}
+                  </div>
+                  {Object.keys(lr.top_error_buckets).length > 0 ? (
+                    <div className="space-y-1">
+                      {Object.entries(lr.top_error_buckets).map(([msg, count]) => (
+                        <div key={msg} className="flex items-start gap-3 text-xs">
+                          <span className="font-mono text-rose-400 min-w-[2rem]">{count}×</span>
+                          <span className="text-neutral-300 break-all">{msg}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-neutral-500">No grouped errors recorded.</div>
+                  )}
+                </td>
+              </tr>
+            );
+          }
+          return rows;
         })}
       </DataTable>
       <Pagination page={page} total={total} pageSize={50} onPage={setPage} />

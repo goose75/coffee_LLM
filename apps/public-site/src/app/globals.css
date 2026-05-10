@@ -144,3 +144,28 @@
     to { opacity: 1; transform: translateY(0); }
   }
 }
+
+/* ── ExplanationBlurb ──────────────────────────────────────────────────────── */
+.expblurb-text {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+.expblurb-skeleton {
+  padding: 2px 0;
+}
+.expblurb-skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--surface-raised) 50%,
+    var(--surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}

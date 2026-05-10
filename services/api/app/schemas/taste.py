@@ -23,6 +23,10 @@ class FlavorFamilySummary(BaseModel):
     weight: int = 0   # number of tags — drives visualisation sizing
 
 
+# Backwards-compatible alias — older tests and callers reference FlavorFamily.
+FlavorFamily = FlavorFamilySummary
+
+
 class TasteProfile(BaseModel):
     bean_id: UUID
     canonical_name: str

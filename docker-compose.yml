@@ -1,4 +1,17 @@
-version: "3.9"
+# Grounds — Coffee Intelligence Platform
+# ─────────────────────────────────────────────────────────────────────────────
+# Quick start (first time):
+#   docker compose up -d postgres redis
+#   docker compose up -d api
+#   docker exec coffee_api python scripts/seed.py
+#   docker exec coffee_api python scripts/seed_extended.py
+#   docker exec coffee_api alembic stamp head
+#
+# To enable AI features, set ANTHROPIC_API_KEY below and restart:
+#   docker compose restart api
+#
+# To start scheduled crawling:
+#   docker compose up -d worker
 
 networks:
   coffee_net:
@@ -23,7 +36,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infrastructure/docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
     networks:
       - coffee_net
     healthcheck:
@@ -65,11 +77,16 @@ services:
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001"]'
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: ./raw_storage
-      ANTHROPIC_API_KEY: ""
+      # ── Anthropic API key — read from .env at the repo root ─────────────────
+      # Add ANTHROPIC_API_KEY=sk-ant-... to ./.env (which is gitignored).
+      # Compose substitutes it at startup; nothing secret is committed here.
+      # Get a key at: https://console.anthropic.com
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set in .env}
+      # ─────────────────────────────────────────────────────────────────────────
       LLM_MODEL: claude-sonnet-4-20250514
       EMBEDDING_DIMENSIONS: "1536"
-      CONFIDENCE_AUTO_ACCEPT: "0.92"
-      CONFIDENCE_REVIEW_QUEUE: "0.75"
+      CONFIDENCE_AUTO_ACCEPT: "0.78"
+      CONFIDENCE_REVIEW_QUEUE: "0.55"
     ports:
       - "8000:8000"
     volumes:
@@ -88,3 +105,41 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  worker:
+    build:
+      context: ./services/ingestion
+      dockerfile: Dockerfile
+    container_name: coffee_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://coffee:coffee@postgres:5432/coffee_platform
+      REDIS_URL: redis://redis:6379/0
+      WORKER_COUNT: "3"
+      LOG_LEVEL: INFO
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: /app/raw_storage
+      # ── Same API key as above (read from ./.env) ────────────────────────────
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set in .env}
+      # ─────────────────────────────────────────────────────────────────────────
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./services/ingestion:/app
+      - ./services/api:/app/services/api
+      - raw_storage:/app/raw_storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - coffee_net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

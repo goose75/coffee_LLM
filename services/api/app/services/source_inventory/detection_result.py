@@ -96,7 +96,9 @@ class DomainDetectionResult:
 
         Priority:
           1. Shopify products.json reachable           → shopify
-          2. Shopify meta tag in HTML                  → shopify
+          2. Shopify meta tag in HTML AND
+             /products.json was NOT a definitive 4xx   → shopify
+             (auth-gated 401/403 + meta tag still wins)
           3. schema.org Product found in homepage      → schema_org
           4. Domain is reachable but nothing detected  → html
           5. Domain unreachable                        → unknown
@@ -113,7 +115,21 @@ class DomainDetectionResult:
                 })
             return
 
-        if self.homepage and self.homepage.is_shopify_meta:
+        # Don't trust a stale Shopify meta tag if the server categorically
+        # said "this endpoint doesn't exist". A 404/410 on /products.json is
+        # authoritative: the store has migrated off Shopify (very common for
+        # roasters who keep the old theme HTML when moving to a custom
+        # backend). 401/403/5xx leave the door open for the meta-tag fallback
+        # since they could indicate auth or a transient outage.
+        feed_definitively_absent = bool(
+            self.shopify
+            and self.shopify.status_code in (404, 410)
+        )
+        if (
+            self.homepage
+            and self.homepage.is_shopify_meta
+            and not feed_definitively_absent
+        ):
             self.parser_strategy = "shopify"
             self.source_type = "shopify"
             self.signals.append(DetectionSignal.shopify_meta_tag)

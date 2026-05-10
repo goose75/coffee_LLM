@@ -68,7 +68,7 @@ export default function IngestionRunsPage() {
           </thead>
           <tbody>
             {loading ? <SkeletonRows cols={7} /> : runs.length === 0 ? (
-              <tr><td colSpan={7}><EmptyState message="No ingestion runs yet. Trigger one from the Sources page." /></td></tr>
+              <tr><td colSpan={7}><EmptyState message="No ingestion runs yet." action={<a href="/sources" style={{ color: "var(--accent)", fontSize: "0.75rem" }}>Go to Sources to trigger your first crawl →</a>} /></td></tr>
             ) : runs.map(run => (
               <>
                 <tr key={run.id} onClick={() => setExpanded(expanded === run.id ? null : run.id)}

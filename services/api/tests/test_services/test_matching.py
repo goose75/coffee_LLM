@@ -448,6 +448,9 @@ class TestMatchingService:
 
     def _make_session(self, candidates=None, existing_match=None):
         session = AsyncMock()
+        # session.add() is sync on AsyncSession — keep it as MagicMock so
+        # calling it doesn't return an unawaited coroutine.
+        session.add = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = existing_match
         mock_result.scalars.return_value.all.return_value = candidates or []

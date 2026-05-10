@@ -750,8 +750,8 @@ def upgrade() -> None:
         sa.Column("records_unchanged", sa.Integer, nullable=False, server_default="0"),
         sa.Column("pages_fetched", sa.Integer, nullable=False, server_default="0"),
         sa.Column("pages_failed", sa.Integer, nullable=False, server_default="0"),
-        sa.Column("warnings", postgresql.JSONB, nullable=False, server_default="'[]'"),
-        sa.Column("errors", postgresql.JSONB, nullable=False, server_default="'[]'"),
+        sa.Column("warnings", postgresql.JSONB, nullable=False, server_default=sa.text("'[]'")),
+        sa.Column("errors", postgresql.JSONB, nullable=False, server_default=sa.text("'[]'")),
     )
     op.create_index("ix_ingestion_runs_store_id", "ingestion_runs", ["store_id"])
     op.create_index("ix_ingestion_runs_status", "ingestion_runs", ["status"])

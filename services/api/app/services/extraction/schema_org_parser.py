@@ -170,14 +170,12 @@ class SchemaOrgParser(BaseParser):
             roaster_name = _roaster_from_url(url)
 
         # ── Price variants from offers ─────────────────────────────────────
+        # Schema.org allows two shapes:
+        #   product.offers = Offer
+        #   product.offers = AggregateOffer { offers: [Offer, Offer, …] }
+        # Flatten both into a list of leaf Offer dicts before mapping.
         price_variants: list[PriceVariantPayload] = []
-        offers_raw = product.get("offers") or []
-        if isinstance(offers_raw, dict):
-            offers_raw = [offers_raw]
-
-        for offer in offers_raw:
-            if not isinstance(offer, dict):
-                continue
+        for offer in _flatten_offers(product.get("offers")):
             pv = _map_offer(offer, name)
             if pv is not None:
                 price_variants.append(pv)
@@ -330,6 +328,35 @@ def _map_offer(offer: dict, product_name: str) -> PriceVariantPayload | None:
         currency_code=currency if currency else "GBP",
         availability=availability,
     )
+
+
+# ── Offer flattening ──────────────────────────────────────────────────────────
+
+def _flatten_offers(raw: Any) -> list[dict]:
+    """
+    Walk an offers tree (Offer | AggregateOffer | list of either) and return
+    only leaf Offer dicts that have a price. Recursive so nested
+    AggregateOffer.offers structures are handled.
+    """
+    out: list[dict] = []
+    if raw is None:
+        return out
+    if isinstance(raw, list):
+        for item in raw:
+            out.extend(_flatten_offers(item))
+        return out
+    if not isinstance(raw, dict):
+        return out
+
+    nested = raw.get("offers")
+    if nested:
+        out.extend(_flatten_offers(nested))
+
+    # Treat the node itself as an offer if it has a price (covers plain Offer
+    # and AggregateOffer nodes whose nested array is missing).
+    if raw.get("price") or (raw.get("priceSpecification") or {}).get("price"):
+        out.append(raw)
+    return out
 
 
 # ── Graph utilities ───────────────────────────────────────────────────────────

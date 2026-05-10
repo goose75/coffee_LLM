@@ -28,7 +28,7 @@ import sys
 from datetime import datetime, timezone
 
 # Add API service to path so we can import app.* modules
-_API_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "api")
+_API_PATH = "/app/services/api"
 if _API_PATH not in sys.path:
     sys.path.insert(0, _API_PATH)
 

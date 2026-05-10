@@ -118,13 +118,14 @@ def validate_llm_response(raw_text: str) -> ValidatedLLMResponse:
             success=True,  # still persisted, but flagged
             payload=payload,
             raw_text=raw_text,
-            validation_errors=sanity_errors,
+            validation_errors=errors + sanity_errors,
         )
 
     return ValidatedLLMResponse(
         success=True,
         payload=payload,
         raw_text=raw_text,
+        validation_errors=errors,
     )
 
 
@@ -140,8 +141,8 @@ def _extract_json_string(text: str) -> tuple[str, list[str]]:
     text = text.strip()
     errors: list[str] = []
 
-    # Ideal: starts directly with {
-    if text.startswith("{"):
+    # Ideal: starts directly with { (or [, which step-2 will reject explicitly)
+    if text.startswith("{") or text.startswith("["):
         return text, []
 
     # Try code fence extraction
@@ -149,7 +150,7 @@ def _extract_json_string(text: str) -> tuple[str, list[str]]:
     if fence_match:
         errors.append("Model wrapped response in code fences — stripped and continuing")
         content = fence_match.group(1).strip()
-        if content.startswith("{"):
+        if content.startswith("{") or content.startswith("["):
             return content, errors
 
     # Try to find { after leading text

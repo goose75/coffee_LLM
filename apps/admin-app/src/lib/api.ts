@@ -35,7 +35,8 @@ export interface Paginated<T> {
 
 // Sources
 export interface SourcePage { id: string; url: string; page_type: string; parser_strategy: string; discovered_at: string; last_fetched_at: string | null; status_code: number | null; changed_flag: boolean; }
-export interface Store { id: string; name: string; domain: string; homepage_url: string; source_type: string; parser_strategy: string; country_code: string; uk_region: string | null; roaster_flag: boolean; cafe_flag: boolean; ecommerce_flag: boolean; active_flag: boolean; crawl_frequency_hours: number; last_successful_crawl_at: string | null; created_at: string; updated_at: string; health_status: "healthy" | "stale" | "unknown" | "inactive"; }
+export interface LastRunSummary { id: string; status: "running" | "completed" | "partial" | "failed"; started_at: string; completed_at: string | null; records_seen: number; records_created: number; records_updated: number; error_count: number; warning_count: number; top_errors: string[]; top_error_buckets: Record<string, number>; }
+export interface Store { id: string; name: string; domain: string; homepage_url: string; source_type: string; parser_strategy: string; country_code: string; uk_region: string | null; roaster_flag: boolean; cafe_flag: boolean; ecommerce_flag: boolean; active_flag: boolean; crawl_frequency_hours: number; last_successful_crawl_at: string | null; created_at: string; updated_at: string; health_status: "healthy" | "degraded" | "failing" | "stale" | "unknown" | "inactive" | "no_pipeline"; last_run: LastRunSummary | null; }
 export interface StoreDetail extends Store { source_pages: SourcePage[]; }
 export interface PaginatedStores extends Paginated<Store> { filters_applied: Record<string, unknown>; }
 export interface ImportReport { total: number; inserted: number; updated: number; failed: number; unreachable: number; strategies: Record<string, number>; errors: Array<{ domain?: string; error: string }>; }
@@ -73,10 +74,61 @@ export interface CanonicalBeanSummary { id: string; canonical_name: string; orig
 export interface MatchSignals { exact_score: number; fuzzy_score: number; embedding_score: number; harvest_score: number; field_matches: Record<string, boolean | null>; combined: number; }
 export interface CanonicalMatch { id: string; bean_listing_id: string; proposed_canonical_bean_id: string; match_method: string; confidence_score: number; accepted_by_system_flag: boolean; reviewed_by_user_id: string | null; review_status: string; review_notes: string | null; reviewed_at: string | null; created_at: string; match_signals: MatchSignals | null; confidence_band: string; bean_listing: BeanListingSummary | null; proposed_canonical_bean: CanonicalBeanSummary | null; }
 export interface PaginatedMatches extends Paginated<CanonicalMatch> { pending_count: number; }
-export interface MatchFilters { status?: string; match_method?: string; page?: number; page_size?: number; }
+export interface MatchFilters { status?: string; match_method?: string; min_confidence?: number; max_confidence?: number; page?: number; page_size?: number; }
 export const getMatches = (f: MatchFilters = {}) => { const p = new URLSearchParams(); Object.entries(f).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); }); return apiFetch<PaginatedMatches>(`/review/matches${p.toString() ? `?${p}` : ""}`); };
 export const acceptMatch = (id: string, notes?: string) => apiFetch(`/review/matches/${id}/accept`, { method: "POST", body: JSON.stringify({ notes }) });
 export const rejectMatch = (id: string, notes?: string) => apiFetch(`/review/matches/${id}/reject`, { method: "POST", body: JSON.stringify({ notes }) });
+
+// Bulk review
+export interface BulkReviewRequest { match_ids?: string[]; min_confidence?: number; max_confidence?: number; match_method?: string; notes?: string; user_id?: string; limit?: number; }
+export interface BulkReviewResponse { outcome: "accepted" | "rejected"; affected: number; skipped: string[]; }
+export const bulkAcceptMatches = (req: BulkReviewRequest) => apiFetch<BulkReviewResponse>("/review/matches/bulk-accept", { method: "POST", body: JSON.stringify(req) });
+export const bulkRejectMatches = (req: BulkReviewRequest) => apiFetch<BulkReviewResponse>("/review/matches/bulk-reject", { method: "POST", body: JSON.stringify(req) });
+
+// Review analytics
+export interface HistogramBin { bin_label: string; bin_min: number; bin_max: number; count: number; }
+export interface FieldCoverage { field: string; matched: number; mismatched: number; skipped: number; }
+export interface TopBlocker { label: string; count: number; description: string; }
+export interface ReviewAnalytics {
+  pending_count: number;
+  accepted_count: number;
+  rejected_count: number;
+  pending_confidence_histogram: HistogramBin[];
+  exact_score_histogram: HistogramBin[];
+  fuzzy_score_histogram: HistogramBin[];
+  embedding_score_histogram: HistogramBin[];
+  field_coverage: FieldCoverage[];
+  method_breakdown: Record<string, number>;
+  top_blockers: TopBlocker[];
+  catalogue_completeness_histogram: HistogramBin[];
+  canonical_bean_count: number;
+  avg_canonical_completeness: number;
+}
+export const getReviewAnalytics = () => apiFetch<ReviewAnalytics>("/review/analytics");
+
+// Data quality
+export interface FieldDisagreement { field: string; canonical_value: string | null; listing_majority_value: string | null; listings_disagreeing: number; total_listings: number; }
+export interface DataQualityIssue { issue_type: "field_disagreement" | "duplicate_suspect" | "stale_auto_accept" | "very_sparse"; bean_id: string; canonical_name: string; severity: "low" | "medium" | "high"; summary: string; field_disagreements: FieldDisagreement[]; duplicate_of_bean_id: string | null; duplicate_of_name: string | null; stale_match_id: string | null; }
+export interface DataQualityReport { issues: DataQualityIssue[]; counts_by_type: Record<string, number>; total: number; }
+export const getDataQuality = () => apiFetch<DataQualityReport>("/review/data-quality");
+
+// Field enhancement
+export interface FieldSuggestion { field: string; current_value: string | null; suggested_value: string | null; confidence: number; source_summary: string; }
+export interface EnhancementProposal { bean_id: string; canonical_name: string; current_completeness: number; listings_considered: number; suggestions: FieldSuggestion[]; notes: string | null; }
+export interface EnhancementApplyResponse { bean_id: string; fields_updated: string[]; new_completeness: number; }
+export interface BulkEnhancementSummary { beans_examined: number; beans_updated: number; fields_updated_total: number; skipped_no_listings: number; skipped_no_suggestions: number; errors: string[]; }
+export const previewEnhancement = (beanId: string) => apiFetch<EnhancementProposal>(`/beans/${beanId}/enhance/preview`);
+export const applyEnhancement = (beanId: string, accepted_fields: string[]) => apiFetch<EnhancementApplyResponse>(`/beans/${beanId}/enhance/apply`, { method: "POST", body: JSON.stringify({ accepted_fields }) });
+export const bulkEnhance = (params: { max_completeness?: number; limit?: number; auto_apply_threshold?: number } = {}) => {
+  const p = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => { if (v != null) p.set(k, String(v)); });
+  return apiFetch<BulkEnhancementSummary>(`/beans/enhance/bulk${p.toString() ? `?${p}` : ""}`, { method: "POST" });
+};
+
+// Merge canonical beans
+export interface MergeRequest { source_bean_id: string; target_bean_id: string; delete_source?: boolean; }
+export interface MergeResult { target_bean_id: string; relinked_listings: number; relinked_matches: number; fields_copied: string[]; source_deleted: boolean; }
+export const mergeBeans = (req: MergeRequest) => apiFetch<MergeResult>("/beans/merge", { method: "POST", body: JSON.stringify(req) });
 
 // Mappings
 export interface Mapping { id: string; mapping_type: string; raw_value: string; normalised_value: string; confidence_score: number; source: string; created_at: string; updated_at: string; }

@@ -83,6 +83,7 @@ class CoffeePublic(BaseModel):
     store_count: int = 0
     min_price_gbp: float | None = None
     max_price_gbp: float | None = None
+    min_price_per_100g_gbp: float | None = None
     # ISO-8601 timestamp of the most recent listing (used by new-releases feed)
     newest_listing_at: str | None = None
 

@@ -6,6 +6,9 @@ import {
   type TasteProfile, type SimilarCoffee, type Coffee,
 } from "@/lib/api";
 import CoffeeDetailTabs from "@/components/CoffeeDetailTabs";
+import CompareButtonDetail from "@/components/CompareButtonDetail";
+import BrewFit from "@/components/BrewFit";
+import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 
 const PROCESS_COLORS: Record<string, string> = {
   washed: "#6b9e8c", natural: "#c4763a", honey: "#d4a03a",
@@ -161,6 +164,7 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
             <span className="text-[11px] px-2.5 py-1 rounded-full"
               style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)" }}>Decaf</span>
           )}
+          <CompareButtonDetail coffeeId={c.id} coffeeName={c.canonical_name} />
         </div>
 
         {/* Price + roast bar */}
@@ -192,6 +196,16 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
       </div>
 
       {/* Tabbed detail sections */}
+      {/* Grounded explanation */}
+      <div className="px-4 pb-1">
+        <ExplanationBlurb type="coffee" params={{ coffeeId: c.id }} />
+      </div>
+
+      {/* Brew Fit */}
+      <div className="px-4 pb-2">
+        <BrewFit coffeeId={c.id} />
+      </div>
+
       <CoffeeDetailTabs
         coffee={c}
         history={history}

@@ -58,6 +58,7 @@ export interface Coffee {
   listing_count?: number;
   min_price_gbp?: number | null;
   max_price_gbp?: number | null;
+  min_price_per_100g_gbp?: number | null;
   store_count?: number;
   newest_listing_at?: string | null;
   listings?: StoreListing[];
@@ -130,8 +131,10 @@ export interface VariantPriceHistory {
   grind_type: string;
   store_name: string;
   store_id: string;
+  store_domain: string;
   history: PricePoint[];
   latest_price_gbp: number | null;
+  latest_price_per_100g: number | null;
 }
 
 export interface BeanPriceHistory {
@@ -139,6 +142,7 @@ export interface BeanPriceHistory {
   canonical_name: string;
   variants: VariantPriceHistory[];
   min_current_price_gbp: number | null;
+  min_current_per_100g: number | null;
 }
 
 export interface VariantOffer {
@@ -217,6 +221,18 @@ export interface SimilarCoffee {
   flavour_notes: string[];
   similarity_score: number;
   shared_families: string[];
+}
+
+export interface MarketAverages {
+  median_per_100g_gbp: number | null;
+  mean_per_100g_gbp: number | null;
+  min_per_100g_gbp: number | null;
+  max_per_100g_gbp: number | null;
+  sample_size: number;
+}
+
+export async function getMarketAverages(): Promise<MarketAverages> {
+  return apiFetch<MarketAverages>("/market/averages");
 }
 
 // ── Price + taste fetch functions ─────────────────────────────────────────────

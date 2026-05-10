@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import CoffeeCard from "@/components/CoffeeCard";
-import { getCoffees } from "@/lib/api";
-import type { Coffee } from "@/lib/api";
+import { getCoffees, getMarketAverages } from "@/lib/api";
+import type { Coffee, MarketAverages } from "@/lib/api";
 
 const PROCESSES = ["washed", "natural", "honey", "anaerobic", "wet_hulled", "carbonic_maceration"];
 const ROASTS    = ["light", "medium_light", "medium", "medium_dark", "dark"];
@@ -70,8 +70,13 @@ export default function BrowsePage() {
   const [page, setPage]                 = useState(1);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
+  const [marketMedian, setMarketMedian] = useState<number | null>(null);
 
   // Debounce
+  useEffect(() => {
+    getMarketAverages().then(d => setMarketMedian(d.median_per_100g_gbp)).catch(() => {});
+  }, []);
+
   useEffect(() => { const t = setTimeout(() => setDebouncedQ(q), 350); return () => clearTimeout(t); }, [q]);
   // Reset page on filter change
   useEffect(() => { setPage(1); }, [debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice]);
@@ -207,10 +212,10 @@ export default function BrowsePage() {
             </div>
           ) : layout === "grid" ? (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {coffees.map(c => <CoffeeCard key={c.id} coffee={c} />)}
+              {coffees.map(c => <CoffeeCard key={c.id} coffee={c} marketMedianPer100g={marketMedian} />)}
             </div>
           ) : (
-            <div>{coffees.map(c => <CoffeeCard key={c.id} coffee={c} layout="list" />)}</div>
+            <div>{coffees.map(c => <CoffeeCard key={c.id} coffee={c} layout="list" marketMedianPer100g={marketMedian} />)}</div>
           )}
 
           {totalPages > 1 && !loading && (

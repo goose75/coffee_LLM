@@ -74,7 +74,7 @@ def compute_risk(
             two_dp = f"{val:.2f}"
             int_str = str(int(val))
             if two_dp not in known_prices and int_str not in known_prices:
-                risk += 0.25
+                risk += 0.30
         except ValueError:
             pass
     risk = min(risk, 0.85)  # cap

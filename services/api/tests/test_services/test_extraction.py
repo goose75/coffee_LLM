@@ -449,7 +449,7 @@ class TestHtmlRulesParser:
         <div class="woocommerce-product-details__short-description">
           <p>Our decaf offering using Swiss Water process. Suitable for espresso.</p>
         </div>
-        <div class="price"><bdi>£11.00</bdi></div>
+        <div class="price"><bdi>\xc2\xa311.00</bdi></div>
         </body></html>
         """
         result = parser.extract(decaf_html, "https://example.com/decaf")

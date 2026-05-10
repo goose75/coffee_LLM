@@ -82,6 +82,30 @@ async def assistant_chat(
     )
 
 
+
+
+# ── Public: assistant health check ────────────────────────────────────────────
+
+@public_router.get("/assistant/health")
+async def assistant_health() -> dict:
+    """
+    Returns 200 {"status":"ok","configured":true} when ANTHROPIC_API_KEY is set.
+    Returns 503 when the key is absent or empty.
+    Used by the frontend to show a setup card instead of a broken chat UI.
+    """
+    import os
+    key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if key and len(key) > 10:
+        return {"status": "ok", "configured": True}
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "ANTHROPIC_API_KEY is not configured. "
+            "Add it to docker-compose.yml under the api service, then run: "
+            "docker compose restart api"
+        ),
+    )
+
 # ── Admin: logs ────────────────────────────────────────────────────────────────
 
 @admin_router.get("/assistant/logs", response_model=PaginatedLogs)

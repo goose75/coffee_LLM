@@ -200,7 +200,7 @@ class CanonicalMatchingService:
             raise ValueError(f"Match {match_id} not found")
 
         match.review_status = ReviewStatus.accepted
-        match.reviewed_by_user_id = user_id
+        match.reviewed_by = user_id
         match.review_notes = notes
         match.reviewed_at = datetime.now(timezone.utc)
 
@@ -224,12 +224,131 @@ class CanonicalMatchingService:
             raise ValueError(f"Match {match_id} not found")
 
         match.review_status = ReviewStatus.rejected
-        match.reviewed_by_user_id = user_id
+        match.reviewed_by = user_id
         match.review_notes = notes
         match.reviewed_at = datetime.now(timezone.utc)
 
         await self.session.commit()
         return match
+
+    # ── Bulk operations ───────────────────────────────────────────────────────
+
+    async def bulk_accept(
+        self,
+        match_ids: list[uuid.UUID],
+        user_id: str | None = None,
+        notes: str | None = None,
+    ) -> tuple[int, list[str]]:
+        """
+        Accept many matches in a single transaction.
+
+        Returns (accepted_count, skipped_ids). A match is "skipped" if it
+        doesn't exist or isn't currently pending — this is a safe operation
+        that won't reverse already-completed reviews.
+        """
+        from sqlalchemy import select
+        if not match_ids:
+            return 0, []
+        stmt = select(CanonicalMatch).where(CanonicalMatch.id.in_(match_ids))
+        rows = (await self.session.execute(stmt)).scalars().all()
+        found_ids = {r.id for r in rows}
+        skipped = [str(mid) for mid in match_ids if mid not in found_ids]
+
+        accepted = 0
+        now = datetime.now(timezone.utc)
+        for match in rows:
+            current_status = match.review_status
+            current_value = current_status.value if hasattr(current_status, "value") else str(current_status)
+            if current_value != "pending":
+                skipped.append(str(match.id))
+                continue
+            match.review_status = ReviewStatus.accepted
+            match.reviewed_by = user_id
+            match.review_notes = notes
+            match.reviewed_at = now
+            listing = await self.session.get(BeanListing, match.bean_listing_id)
+            if listing:
+                listing.canonical_bean_id = match.proposed_canonical_bean_id
+            accepted += 1
+
+        await self.session.commit()
+        return accepted, skipped
+
+    async def bulk_reject(
+        self,
+        match_ids: list[uuid.UUID],
+        user_id: str | None = None,
+        notes: str | None = None,
+    ) -> tuple[int, list[str]]:
+        """Reject many matches in a single transaction. See bulk_accept docstring."""
+        from sqlalchemy import select
+        if not match_ids:
+            return 0, []
+        stmt = select(CanonicalMatch).where(CanonicalMatch.id.in_(match_ids))
+        rows = (await self.session.execute(stmt)).scalars().all()
+        found_ids = {r.id for r in rows}
+        skipped = [str(mid) for mid in match_ids if mid not in found_ids]
+
+        rejected = 0
+        now = datetime.now(timezone.utc)
+        for match in rows:
+            current_status = match.review_status
+            current_value = current_status.value if hasattr(current_status, "value") else str(current_status)
+            if current_value != "pending":
+                skipped.append(str(match.id))
+                continue
+            match.review_status = ReviewStatus.rejected
+            match.reviewed_by = user_id
+            match.review_notes = notes
+            match.reviewed_at = now
+            rejected += 1
+
+        await self.session.commit()
+        return rejected, skipped
+
+    async def bulk_accept_by_filter(
+        self,
+        min_confidence: float | None = None,
+        max_confidence: float | None = None,
+        match_method: str | None = None,
+        user_id: str | None = None,
+        notes: str | None = None,
+        limit: int = 1000,
+    ) -> tuple[int, list[str]]:
+        """Accept all pending matches matching the filter, capped at `limit`."""
+        from sqlalchemy import select
+        stmt = select(CanonicalMatch.id).where(CanonicalMatch.review_status == "pending")
+        if min_confidence is not None:
+            stmt = stmt.where(CanonicalMatch.confidence_score >= min_confidence)
+        if max_confidence is not None:
+            stmt = stmt.where(CanonicalMatch.confidence_score <= max_confidence)
+        if match_method:
+            stmt = stmt.where(CanonicalMatch.match_method == match_method)
+        stmt = stmt.limit(limit)
+        ids = [row[0] for row in (await self.session.execute(stmt)).all()]
+        return await self.bulk_accept(ids, user_id=user_id, notes=notes)
+
+    async def bulk_reject_by_filter(
+        self,
+        min_confidence: float | None = None,
+        max_confidence: float | None = None,
+        match_method: str | None = None,
+        user_id: str | None = None,
+        notes: str | None = None,
+        limit: int = 1000,
+    ) -> tuple[int, list[str]]:
+        """Reject all pending matches matching the filter, capped at `limit`."""
+        from sqlalchemy import select
+        stmt = select(CanonicalMatch.id).where(CanonicalMatch.review_status == "pending")
+        if min_confidence is not None:
+            stmt = stmt.where(CanonicalMatch.confidence_score >= min_confidence)
+        if max_confidence is not None:
+            stmt = stmt.where(CanonicalMatch.confidence_score <= max_confidence)
+        if match_method:
+            stmt = stmt.where(CanonicalMatch.match_method == match_method)
+        stmt = stmt.limit(limit)
+        ids = [row[0] for row in (await self.session.execute(stmt)).all()]
+        return await self.bulk_reject(ids, user_id=user_id, notes=notes)
 
     # ── Candidate retrieval ───────────────────────────────────────────────────
 
@@ -331,18 +450,21 @@ class CanonicalMatchingService:
     # ── DB operations ─────────────────────────────────────────────────────────
 
     async def _get_listing_embedding(self, listing: BeanListing) -> list[float] | None:
-        """Generate embedding for a listing. Returns None if API unavailable."""
-        if not settings.ANTHROPIC_API_KEY:
-            return None
+        """
+        Generate an embedding for a listing.
+
+        Uses OpenAI's text-embedding-3-small when OPENAI_API_KEY is set,
+        otherwise falls back to the deterministic local hash-based embedding
+        in embeddings.py — that fallback produces non-zero, reproducible
+        1536-dim vectors and lets the ANN candidate search keep working in
+        development without any external API key.
+        """
         try:
-            # Use OpenAI-compatible API if key is set
-            openai_key = getattr(settings, "OPENAI_API_KEY", "")
-            if not openai_key:
-                return None
+            openai_key = getattr(settings, "OPENAI_API_KEY", "") or ""
             return await generate_listing_embedding(
                 listing,
                 api_key=openai_key,
-                model=settings.EMBEDDING_MODEL,
+                model=getattr(settings, "EMBEDDING_MODEL", "text-embedding-3-small"),
             )
         except Exception as exc:
             log.debug("Could not generate listing embedding: %s", exc)
@@ -364,11 +486,9 @@ class CanonicalMatchingService:
             match_method=method,
             confidence_score=confidence,
             review_status=ReviewStatus.pending,
-            accepted_by_system_flag=False,
         )
         # Store signal breakdown as JSONB
-        from sqlalchemy.dialects.postgresql import JSONB
-        match.match_signals = signals.to_dict()
+        match.match_signals_json = signals.to_dict()
 
         self.session.add(match)
         await self.session.flush()
@@ -382,7 +502,6 @@ class CanonicalMatchingService:
     ) -> None:
         """Mark match as system-accepted and link listing to canonical."""
         match.review_status = ReviewStatus.accepted
-        match.accepted_by_system_flag = True
         match.reviewed_at = datetime.now(timezone.utc)
         listing.canonical_bean_id = canonical.id
 
@@ -411,9 +530,8 @@ class CanonicalMatchingService:
             match_method=MatchMethod.manual,
             confidence_score=0.0,
             review_status=ReviewStatus.accepted,  # Auto-accept: it IS this bean
-            accepted_by_system_flag=True,
         )
-        match.match_signals = {"reason": "new_canonical", "combined": 0.0}
+        match.match_signals_json = {"reason": "new_canonical", "combined": 0.0}
         self.session.add(match)
         listing.canonical_bean_id = canonical.id
         await self.session.flush()

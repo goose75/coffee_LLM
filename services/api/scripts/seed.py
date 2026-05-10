@@ -1,33 +1,38 @@
 """
 Seed script — inserts reference data into a fresh database.
 
+FIXED: Rewrites all raw SQL text() calls as SQLAlchemy ORM operations.
+Original used :name style named parameters which asyncpg rejects.
+
 Usage:
-    cd services/api
-    python scripts/seed.py
+    docker exec coffee_api python scripts/seed.py
 
-Inserts:
+Inserts (idempotent — safe to re-run):
   - 5 UK coffee roasters (stores)
-  - 1 source_page (Shopify feed) per roaster
-  - Normalisation mappings for roast_level, grind_type, process
+  - 1 source_page (Shopify feed) per Shopify store
+  - Normalisation mappings for roast_level, grind, process
   - 3 canonical beans with realistic attributes
-
-Run after `alembic upgrade head`. Safe to re-run — uses upsert logic.
 """
 
 import asyncio
-import sys
 import os
+import sys
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import text
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.models.store import Store
+from app.models.source_page import SourcePage
+from app.models.resolution import NormalisationMapping
+from app.models.canonical_bean import CanonicalBean
+import app.models  # noqa: F401 — register all models
 
 
-# ─── Sample data ──────────────────────────────────────────────────────────────
+# ── Sample data ───────────────────────────────────────────────────────────────
 
 STORES = [
     {
@@ -102,28 +107,27 @@ STORES = [
     },
 ]
 
-# Normalisation mappings — covers the most common raw label variations
 NORMALISATION_MAPPINGS = [
-    # ── roast_level ────────────────────────────────────────────────────────
+    # roast_level
     ("roast_level", "light roast", "light"),
     ("roast_level", "Light", "light"),
     ("roast_level", "lightly roasted", "light"),
     ("roast_level", "blonde", "light"),
+    ("roast_level", "filter roast", "light"),
     ("roast_level", "city roast", "medium"),
     ("roast_level", "City+", "medium_light"),
-    ("roast_level", "full city", "medium_dark"),
-    ("roast_level", "Full City+", "medium_dark"),
     ("roast_level", "medium roast", "medium"),
     ("roast_level", "Medium", "medium"),
     ("roast_level", "medium-light", "medium_light"),
     ("roast_level", "medium-dark", "medium_dark"),
+    ("roast_level", "full city", "medium_dark"),
+    ("roast_level", "Full City+", "medium_dark"),
+    ("roast_level", "espresso roast", "medium_dark"),
     ("roast_level", "dark roast", "dark"),
     ("roast_level", "Dark", "dark"),
-    ("roast_level", "espresso roast", "medium_dark"),
     ("roast_level", "Italian roast", "dark"),
     ("roast_level", "French roast", "dark"),
-    ("roast_level", "filter roast", "light"),
-    # ── grind_type ─────────────────────────────────────────────────────────
+    # grind
     ("grind", "Whole Bean", "whole_bean"),
     ("grind", "whole bean", "whole_bean"),
     ("grind", "Unground", "whole_bean"),
@@ -134,7 +138,6 @@ NORMALISATION_MAPPINGS = [
     ("grind", "Filter", "filter"),
     ("grind", "filter grind", "filter"),
     ("grind", "Pour Over", "pour_over"),
-    ("grind", "pour over", "pour_over"),
     ("grind", "V60", "pour_over"),
     ("grind", "Cafetiere", "cafetiere"),
     ("grind", "cafetière", "cafetiere"),
@@ -147,7 +150,7 @@ NORMALISATION_MAPPINGS = [
     ("grind", "Omni", "omni"),
     ("grind", "omni grind", "omni"),
     ("grind", "All Brew Methods", "omni"),
-    # ── process ────────────────────────────────────────────────────────────
+    # process
     ("process", "Washed", "washed"),
     ("process", "washed process", "washed"),
     ("process", "Fully Washed", "washed"),
@@ -233,115 +236,97 @@ CANONICAL_BEANS = [
 ]
 
 
-# ─── Seed runner ──────────────────────────────────────────────────────────────
+# ── Seed runner ───────────────────────────────────────────────────────────────
 
 async def seed(session: AsyncSession) -> None:
     now = datetime.now(timezone.utc)
 
-    # ── Stores ─────────────────────────────────────────────────────────────
+    # ── Stores ────────────────────────────────────────────────────────────────
     print("Seeding stores...")
-    store_ids: dict[str, str] = {}
-    for store_data in STORES:
-        result = await session.execute(
-            text("""
-                INSERT INTO stores (
-                    name, domain, homepage_url, source_type, parser_strategy,
-                    country_code, uk_region, roaster_flag, cafe_flag,
-                    ecommerce_flag, active_flag, crawl_frequency_hours
-                ) VALUES (
-                    :name, :domain, :homepage_url, :source_type::source_type,
-                    :parser_strategy::parser_strategy,
-                    :country_code, :uk_region, :roaster_flag, :cafe_flag,
-                    :ecommerce_flag, :active_flag, :crawl_frequency_hours
-                )
-                ON CONFLICT (domain) DO UPDATE
-                    SET name = EXCLUDED.name,
-                        updated_at = now()
-                RETURNING id, domain
-            """),
-            store_data,
-        )
-        row = result.fetchone()
-        store_ids[row.domain] = str(row.id)
-        print(f"  ✓ {store_data['name']} ({store_data['domain']})")
+    store_objects: dict[str, Store] = {}
+    for data in STORES:
+        existing = (await session.execute(
+            select(Store).where(Store.domain == data["domain"])
+        )).scalar_one_or_none()
 
-    # ── Source pages (one Shopify feed per Shopify store) ──────────────────
+        if existing is None:
+            store = Store(**data)
+            session.add(store)
+            await session.flush()  # get the id
+            store_objects[data["domain"]] = store
+            print(f"  ✓ {data['name']} ({data['domain']}) — created")
+        else:
+            existing.name = data["name"]
+            store_objects[data["domain"]] = existing
+            print(f"  = {data['name']} ({data['domain']}) — already exists")
+
+    await session.flush()
+
+    # ── Source pages (one Shopify feed per Shopify store) ─────────────────────
     print("\nSeeding source pages...")
-    for store_data in STORES:
-        if store_data["parser_strategy"] != "shopify":
+    for data in STORES:
+        if data["parser_strategy"] != "shopify":
             continue
-        domain = store_data["domain"]
-        store_id = store_ids[domain]
-        feed_url = f"https://{domain}/products.json"
-        await session.execute(
-            text("""
-                INSERT INTO source_pages (
-                    store_id, url, page_type, parser_strategy, discovered_at
-                ) VALUES (
-                    :store_id::uuid, :url, 'feed'::page_type,
-                    'shopify'::parser_strategy, :discovered_at
-                )
-                ON CONFLICT DO NOTHING
-            """),
-            {"store_id": store_id, "url": feed_url, "discovered_at": now},
-        )
-        print(f"  ✓ {feed_url}")
+        store = store_objects.get(data["domain"])
+        if store is None:
+            continue
+        feed_url = f"https://{data['domain']}/products.json"
+        existing_page = (await session.execute(
+            select(SourcePage).where(SourcePage.url == feed_url)
+        )).scalar_one_or_none()
+        if existing_page is None:
+            page = SourcePage(
+                store_id=store.id,
+                url=feed_url,
+                page_type="feed",
+                parser_strategy="shopify",
+                discovered_at=now,
+                changed_flag=True,
+            )
+            session.add(page)
+            print(f"  ✓ {feed_url}")
 
-    # ── Normalisation mappings ─────────────────────────────────────────────
+    await session.flush()
+
+    # ── Normalisation mappings ─────────────────────────────────────────────────
     print("\nSeeding normalisation mappings...")
+    added = 0
     for mapping_type, raw_value, normalised_value in NORMALISATION_MAPPINGS:
-        await session.execute(
-            text("""
-                INSERT INTO normalisation_mappings (
-                    mapping_type, raw_value, normalised_value, confidence_score, source
-                ) VALUES (
-                    :mapping_type::mapping_type, :raw_value, :normalised_value, 1.0, 'manual'
-                )
-                ON CONFLICT (mapping_type, raw_value) DO UPDATE
-                    SET normalised_value = EXCLUDED.normalised_value,
-                        updated_at = now()
-            """),
-            {
-                "mapping_type": mapping_type,
-                "raw_value": raw_value,
-                "normalised_value": normalised_value,
-            },
-        )
-    print(f"  ✓ {len(NORMALISATION_MAPPINGS)} mappings")
+        existing = (await session.execute(
+            select(NormalisationMapping).where(
+                NormalisationMapping.mapping_type == mapping_type,
+                NormalisationMapping.raw_value == raw_value,
+            )
+        )).scalar_one_or_none()
+        if existing is None:
+            session.add(NormalisationMapping(
+                mapping_type=mapping_type,
+                raw_value=raw_value,
+                normalised_value=normalised_value,
+                confidence_score=1.0,
+                source="manual",
+            ))
+            added += 1
+    print(f"  ✓ {added} mappings added ({len(NORMALISATION_MAPPINGS) - added} already existed)")
 
-    # ── Canonical beans ────────────────────────────────────────────────────
+    await session.flush()
+
+    # ── Canonical beans ───────────────────────────────────────────────────────
     print("\nSeeding canonical beans...")
-    for bean in CANONICAL_BEANS:
-        await session.execute(
-            text("""
-                INSERT INTO canonical_beans (
-                    canonical_name, origin_country, origin_region,
-                    farm_or_estate, washing_station, producer,
-                    varietal, process, process_detail,
-                    altitude_masl_min, altitude_masl_max,
-                    harvest_year, roast_level, flavour_notes,
-                    decaf_flag, espresso_suitable_flag, filter_suitable_flag,
-                    data_completeness_score
-                ) VALUES (
-                    :canonical_name, :origin_country, :origin_region,
-                    :farm_or_estate, :washing_station, :producer,
-                    :varietal, :process::process,
-                    :process_detail,
-                    :altitude_masl_min, :altitude_masl_max,
-                    :harvest_year, :roast_level::roast_level, :flavour_notes,
-                    :decaf_flag, :espresso_suitable_flag, :filter_suitable_flag,
-                    :data_completeness_score
-                )
-                ON CONFLICT DO NOTHING
-            """),
-            {
-                **bean,
-                "varietal": bean["varietal"],
-                "flavour_notes": bean["flavour_notes"],
-                "process_detail": bean.get("process_detail"),
-            },
-        )
-        print(f"  ✓ {bean['canonical_name']}")
+    for bean_data in CANONICAL_BEANS:
+        existing = (await session.execute(
+            select(CanonicalBean).where(
+                CanonicalBean.canonical_name == bean_data["canonical_name"]
+            )
+        )).scalar_one_or_none()
+        if existing is None:
+            # Build kwargs — process_detail is optional
+            kwargs = {k: v for k, v in bean_data.items()}
+            bean = CanonicalBean(**kwargs)
+            session.add(bean)
+            print(f"  ✓ {bean_data['canonical_name']} — created")
+        else:
+            print(f"  = {bean_data['canonical_name']} — already exists")
 
     await session.commit()
     print("\n✅ Seed complete.")

@@ -142,10 +142,7 @@ class IngestionDispatcher:
         from app.services.storage.backend import get_storage_backend
         from app.core.config import settings
 
-        storage = get_storage_backend(
-            backend=settings.STORAGE_BACKEND,
-            local_path=settings.STORAGE_LOCAL_PATH,
-        )
+        storage = get_storage_backend()
         pipeline = ShopifyIngestionPipeline(session=session, store=store, storage=storage)
 
         try:
@@ -153,12 +150,15 @@ class IngestionDispatcher:
                 pipeline.run(),
                 timeout=300.0,  # 5 minutes per store
             )
-            result.listings_created = counters.products_created
-            result.listings_updated = counters.products_updated
-            result.price_writes = counters.price_history_writes
+            result.listings_created = counters.records_created
+            result.listings_updated = counters.records_updated
+            result.price_writes = 0  # tracked inside pipeline, not exposed separately
             result.pages_processed = counters.pages_fetched
             if counters.errors:
-                result.errors.extend(counters.errors[:5])  # cap at 5 errors
+                errs = counters.errors if isinstance(counters.errors, list) else []
+                result.errors.extend(
+                    [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errs[:5]]
+                )
 
         except asyncio.TimeoutError:
             result.errors.append("Shopify pipeline timed out after 300s")

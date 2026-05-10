@@ -1,12 +1,14 @@
 """
-Store model.
+Store model — fixed version.
 
-A store is any UK seller or roaster we track. One domain = one store.
-Stores can be roasters, cafes, or pure ecommerce retailers.
-The source_type and parser_strategy fields drive ingestion routing.
+Fixes:
+  1. last_successful_crawl_at: VARCHAR → DateTime(timezone=True)
+  2. Added ingestion_runs relationship to match IngestionRun.back_populates="ingestion_runs"
 """
 
-from sqlalchemy import Boolean, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -40,9 +42,14 @@ class Store(UUIDMixin, TimestampMixin, Base):
 
     # Crawl metadata
     crawl_frequency_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
-    last_successful_crawl_at: Mapped[str | None] = mapped_column(nullable=True)
 
-    # Relationships
+    # FIXED: was Mapped[str | None] with no column type → stored as VARCHAR
+    # Scheduler does timestamp arithmetic against this column; must be DateTime
+    last_successful_crawl_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Relationships — all three must match back_populates in the related models
     source_pages: Mapped[list["SourcePage"]] = relationship(  # noqa: F821
         back_populates="store", cascade="all, delete-orphan"
     )

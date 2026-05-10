@@ -181,7 +181,11 @@ class ShopifyClient:
         while next_url and page_num <= MAX_PAGES:
             await asyncio.sleep(REQUEST_DELAY_S)
 
-            resp = await self._get_with_retry(next_url)
+            # `next_url` here is the URL we are ABOUT to fetch — capture it so
+            # the FetchedPage records the URL that produced the response, not
+            # whatever cursor the response points at next.
+            requested_url = next_url
+            resp = await self._get_with_retry(requested_url)
             raw = resp.content
             data = resp.json()
             products = data.get("products", [])
@@ -192,7 +196,7 @@ class ShopifyClient:
             is_last = next_url is None or len(products) == 0
             yield FetchedPage(
                 page_number=page_num,
-                url=next_url or "",
+                url=requested_url,
                 raw_bytes=raw,
                 products=products,
                 is_last=is_last,

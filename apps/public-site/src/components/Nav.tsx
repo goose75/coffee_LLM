@@ -24,6 +24,9 @@ export default function Nav() {
 
   const links = [
     { href: "/coffees", label: "Browse" },
+    { href: "/flavour-atlas", label: "Flavour Atlas" },
+    { href: "/origins", label: "Origins" },
+    { href: "/origins", label: "Origins" },
     { href: "/roasters", label: "Roasters" },
     { href: "/new-releases", label: "New releases" },
     { href: "/methodology", label: "Methodology" },

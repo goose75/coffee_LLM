@@ -6,6 +6,7 @@ import type {
   Coffee, BeanPriceHistory, PriceSummaryStats,
   TasteProfile, SimilarCoffee
 } from "@/lib/api";
+import { Per100gBars, PriceHistoryChart, GoodValueAlts } from "@/components/PriceIntelligence";
 
 // ── SVG Price Chart ─────────────────────────────────────────────────────────
 
@@ -273,18 +274,25 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
               </div>
             )}
 
-            {/* Price chart */}
+            {/* Price per 100g comparison bars */}
+            {history && history.variants.length > 0 && (
+              <div className="rounded-2xl p-4" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
+                <Per100gBars variants={history.variants} />
+              </div>
+            )}
+
+            {/* Price history chart */}
             {history && history.variants.length > 0 && (
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-faint)" }}>Price history</div>
-                  <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>60 days · 250g</span>
-                </div>
+                <div className="text-[10px] uppercase tracking-widest mb-3" style={{ color: "var(--text-faint)" }}>Price history</div>
                 <div className="rounded-2xl p-4" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
-                  <PriceLineChart history={history} />
+                  <PriceHistoryChart history={history} />
                 </div>
               </div>
             )}
+
+            {/* Good value alternatives */}
+            <GoodValueAlts coffeeId={c.id} maxPrice={primary?.min_price_gbp ?? null} />
 
             {(!history || history.variants.length === 0) && stats.length === 0 && (
               <div className="py-10 text-center">

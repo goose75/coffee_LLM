@@ -210,17 +210,102 @@ def parse_variant(variant: dict, product_title: str = "") -> ParsedVariant:
     )
 
 
+# ── Title-based field extraction ─────────────────────────────────────────────
+# Extracts structured fields from the product title when tags don't have them.
+
+_TITLE_ORIGINS = {
+    "costa rica": "Costa Rica", "el salvador": "El Salvador",
+    "papua new guinea": "Papua New Guinea",
+    "ethiopian": "Ethiopia", "ethiopia": "Ethiopia",
+    "kenyan": "Kenya", "kenya": "Kenya",
+    "colombian": "Colombia", "colombia": "Colombia",
+    "brazilian": "Brazil", "brazil": "Brazil",
+    "guatemalan": "Guatemala", "guatemala": "Guatemala",
+    "rwandan": "Rwanda", "rwanda": "Rwanda",
+    "panamanian": "Panama", "panama": "Panama",
+    "honduran": "Honduras", "honduras": "Honduras",
+    "peruvian": "Peru", "peru": "Peru",
+    "burundian": "Burundi", "burundi": "Burundi",
+    "ugandan": "Uganda", "uganda": "Uganda",
+    "indonesian": "Indonesia", "indonesia": "Indonesia",
+    "yemeni": "Yemen", "yemen": "Yemen",
+    "indian": "India", "india": "India",
+    "mexican": "Mexico", "mexico": "Mexico",
+    "nicaraguan": "Nicaragua", "nicaragua": "Nicaragua",
+    "tanzanian": "Tanzania", "tanzania": "Tanzania",
+    "bolivian": "Bolivia", "bolivia": "Bolivia",
+    "ecuadorian": "Ecuador", "ecuador": "Ecuador",
+    "thailand": "Thailand", "thai": "Thailand",
+}
+
+_TITLE_PROCESSES = {
+    "pulped natural": "natural",
+    "wet process": "washed", "wet-process": "washed",
+    "dry process": "natural", "dry-process": "natural",
+    "carbonic maceration": "anaerobic",
+    "anaerobic": "anaerobic",
+    "washed": "washed",
+    "natural": "natural",
+    "honey": "honey",
+}
+
+_TITLE_ROASTS = {
+    "lightly roasted": "light", "light roast": "light",
+    "medium roast": "medium", "medium-roast": "medium",
+    "dark roast": "dark", "darkly roasted": "dark",
+    "espresso roast": "dark",
+}
+
+_TITLE_VARIETALS = [
+    "pink bourbon", "sl28", "sl34", "pacamara", "geisha", "gesha",
+    "typica", "bourbon", "caturra", "catuai", "sidra", "mejorado",
+    "tabi", "java", "s795", "heirloom", "arabica", "robusta",
+]
+
+
+def _extract_fields_from_title(title: str) -> dict:
+    """Extract origin, process, roast and varietal from product title."""
+    t = title.lower()
+    origin = next(
+        (v for k, v in sorted(_TITLE_ORIGINS.items(), key=lambda x: -len(x[0])) if k in t),
+        None
+    )
+    process = next(
+        (v for k, v in sorted(_TITLE_PROCESSES.items(), key=lambda x: -len(x[0])) if k in t),
+        None
+    )
+    roast = next(
+        (v for k, v in sorted(_TITLE_ROASTS.items(), key=lambda x: -len(x[0])) if k in t),
+        None
+    )
+    varietal = next(
+        (v for v in sorted(_TITLE_VARIETALS, key=len, reverse=True) if v in t),
+        None
+    )
+    return {"origin": origin, "process": process, "roast": roast, "varietal": varietal}
+
+
 def parse_product_fields(product: dict) -> dict:
     """
     Extract listing-level fields from a Shopify product dict.
 
     Returns a flat dict of raw label values for storage in bean_listings.
     These are always raw text — normalisation happens later.
-    """
-    # Extract tags as a list for metadata (not stored on listing directly, but useful)
-    tags = [t.strip() for t in product.get("tags", "").split(",") if t.strip()]
 
-    # Try to extract label hints from tags
+    Two-pass extraction:
+      1. Tags — most reliable when roasters tag consistently
+      2. Title — extracts origin/process/varietal from product name
+    """
+    title = product.get("title", "") or ""
+
+    # Handle tags as list or comma-separated string
+    raw_tags = product.get("tags", "")
+    if isinstance(raw_tags, list):
+        tags = [t.strip() for t in raw_tags if t.strip()]
+    else:
+        tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+
+    # Pass 1: extract from tags
     roast_label = None
     process_label = None
     origin_label = None
@@ -228,30 +313,71 @@ def parse_product_fields(product: dict) -> dict:
 
     for tag in tags:
         tag_lower = tag.lower()
-        if any(k in tag_lower for k in ["light", "medium", "dark", "roast"]):
-            roast_label = roast_label or tag
-        if any(k in tag_lower for k in ["washed", "natural", "honey", "anaerobic", "process"]):
-            process_label = process_label or tag
-        if any(k in tag_lower for k in [
-            "ethiopia", "kenya", "colombia", "brazil", "guatemala",
-            "rwanda", "burundi", "uganda", "peru", "honduras", "costa rica",
-            "panama", "el salvador", "indonesia", "yemen", "india"
+        if not roast_label and any(k in tag_lower for k in ["light", "medium", "dark", "roast"]):
+            roast_label = tag
+        if not process_label and any(k in tag_lower for k in [
+            "washed", "natural", "honey", "anaerobic", "process", "pulped"
         ]):
-            origin_label = origin_label or tag
+            process_label = tag
+        if not origin_label and any(k in tag_lower for k in _TITLE_ORIGINS) and ":" not in tag and len(tag.split()) <= 3:
+            import re
+            origin_label = re.sub(r"^(swatch_|origin_|country_|tag_|caption:.*?-\s*)", "", tag, flags=re.I).strip()
+            origin_label = re.sub(r"\s+coffee$", "", origin_label, flags=re.I).strip().title() or tag
+        if not varietal_label and any(v in tag_lower for v in _TITLE_VARIETALS):
+            varietal_label = tag
 
-    # Try to get body_html as raw description (strip tags in a later pass)
+    # Pass 2: extract from title where tags didn't provide a value
+    title_fields = _extract_fields_from_title(title)
+    if not origin_label and title_fields["origin"]:
+        origin_label = title_fields["origin"]
+    if not process_label and title_fields["process"]:
+        process_label = title_fields["process"]
+    if not roast_label and title_fields["roast"]:
+        roast_label = title_fields["roast"]
+    if not varietal_label and title_fields["varietal"]:
+        varietal_label = title_fields["varietal"]
+
     body_html = product.get("body_html", "") or ""
 
+    # Pass 3: mine body_html for anything tags + title didn't give us.
+    # This is the biggest unlock — most roasters write full descriptions
+    # ("Single origin Yirgacheffe, washed, Heirloom varietal…") and never
+    # tag products structurally. Without this pass, those fields are blank
+    # in the DB and the matcher has nothing to compare on.
+    if body_html and (not origin_label or not process_label or not varietal_label):
+        try:
+            from app.services.extraction.text_utils import (
+                clean_html, extract_origin_country, extract_process, extract_varietal,
+            )
+            description = clean_html(body_html)
+            if not origin_label:
+                v = extract_origin_country(description)
+                if v:
+                    origin_label = v
+            if not process_label:
+                v = extract_process(description)
+                if v:
+                    process_label = v
+            if not varietal_label:
+                varietals = extract_varietal(description)
+                if varietals:
+                    # Store the first detected varietal as the raw label;
+                    # the canonical merge step picks up additional ones.
+                    varietal_label = ", ".join(varietals[:3])
+        except Exception:
+            # Defensive: never fail ingestion because the description couldn't be parsed.
+            pass
+
     return {
-        "raw_title": product.get("title", "")[:500],
-        "raw_subtitle": None,  # Shopify has no subtitle field
+        "raw_title": title[:500],
+        "raw_subtitle": None,
         "raw_description": body_html[:5000] if body_html else None,
         "roast_label_raw": roast_label,
         "process_label_raw": process_label,
         "origin_label_raw": origin_label,
         "varietal_label_raw": varietal_label,
         "seller_product_id": str(product.get("id", "")),
-        "product_url": product.get("url"),  # Not in products.json; constructed later
+        "product_url": product.get("url"),
         "product_handle": product.get("handle", ""),
         "tags": tags,
     }

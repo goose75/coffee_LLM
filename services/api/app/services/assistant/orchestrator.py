@@ -102,8 +102,8 @@ def _build_context_block(records: list[dict]) -> str:
             "store_count": r.get("store_count", 0),
             "listings": [
                 {
-                    "store": l["store_name"],
-                    "url": l.get("product_url"),
+                    "store": l.get("store") or l.get("store_name"),
+                    "url": l.get("url") or l.get("product_url"),
                     "variants": l.get("variants", []),
                 }
                 for l in r.get("listings", [])[:3]  # max 3 stores per bean

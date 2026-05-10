@@ -340,7 +340,9 @@ class TestHashing:
 
 # ─── ShopifyClient ────────────────────────────────────────────────────────────
 
-@pytest.mark.asyncio
+# pytest.ini sets asyncio_mode = auto, so async tests run without an explicit
+# marker. Applying @pytest.mark.asyncio at the class level forced the marker
+# onto sync tests too, which produced PytestWarnings.
 class TestShopifyClient:
     def _products_response(self, products: list, next_url: str | None = None) -> httpx.Response:
         headers = {}
@@ -432,7 +434,6 @@ class TestShopifyClient:
 
 # ─── Pipeline integration (DB-mocked) ────────────────────────────────────────
 
-@pytest.mark.asyncio
 class TestShopifyIngestionPipeline:
     """
     Integration tests for the pipeline using mocked DB session and HTTP.
@@ -466,6 +467,9 @@ class TestShopifyIngestionPipeline:
 
         # Mock the DB session
         session = AsyncMock()
+        # session.add() is sync on AsyncSession — keep it as MagicMock so
+        # calling it doesn't return an unawaited coroutine.
+        session.add = MagicMock()
 
         # Make select().scalar_one_or_none() return None (no existing records)
         mock_execute = AsyncMock()

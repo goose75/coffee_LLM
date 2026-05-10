@@ -8,7 +8,7 @@ const UK_REGIONS = ["London", "South West", "Yorkshire", "Midlands", "Scotland",
 
 function RoasterCard({ roaster }: { roaster: Roaster }) {
   return (
-    <a href={`//${roaster.domain}`} target="_blank" rel="noopener"
+    <a href={`/roasters/${roaster.id}`}
       className="group block rounded-2xl p-5 transition-all hover:-translate-y-0.5"
       style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
       <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl font-semibold mb-4"

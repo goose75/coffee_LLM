@@ -61,9 +61,9 @@ class MatchSignals:
 # ─── Signal weights ────────────────────────────────────────────────────────────
 
 WEIGHTS = {
-    "exact": 0.45,
-    "fuzzy": 0.30,
-    "embedding": 0.20,
+    "exact": 0.50,
+    "fuzzy": 0.40,
+    "embedding": 0.05,
     "harvest": 0.05,
 }
 
@@ -95,8 +95,22 @@ def score_exact_fields(listing: Any, canonical: Any) -> tuple[float, dict[str, b
     total_weight = 0.0
     weighted_score = 0.0
 
+    # Listings come in two shapes:
+    #   1. ORM/DB rows where origin/process/varietal live in *_label_raw cols
+    #   2. Normalised dicts (and tests) where keys match the canonical names
+    # Try the raw-label key first, then fall back to the canonical name.
+    listing_field_map = {
+        "origin_country": ("origin_label_raw", "origin_country"),
+        "process": ("process_label_raw", "process"),
+        "varietal": ("varietal_label_raw", "varietal"),
+        "farm_or_estate": ("farm_or_estate",),
+    }
     for fname, weight in field_weights.items():
-        listing_val = _get_field(listing, fname)
+        listing_val = None
+        for candidate in listing_field_map.get(fname, (fname,)):
+            listing_val = _get_field(listing, candidate)
+            if listing_val is not None and listing_val != "" and listing_val != []:
+                break
         canonical_val = _get_field(canonical, fname)
 
         if not listing_val or not canonical_val:
@@ -124,7 +138,17 @@ def score_exact_fields(listing: Any, canonical: Any) -> tuple[float, dict[str, b
     if total_weight == 0.0:
         return 0.0, matches
 
-    score = weighted_score / total_weight
+    # Normalise against the FULL field weight (sums to 1.0), not the
+    # comparable subset. A single-field match is real evidence, but it's
+    # not perfect evidence — claiming exact_score=1.0 when only one of
+    # four fields could be compared causes the matcher to confidently
+    # link different coffees that happen to share a country.
+    full_weight = sum(field_weights.values()) or 1.0
+    score = weighted_score / full_weight
+    # Country mismatch is a strong identity signal — Kenya ≠ Ethiopia *always*.
+    # Cap the score so other field agreements can't drown it out.
+    if matches.get("origin_country") is False:
+        score = min(score, 0.4)
     return round(score, 4), matches
 
 
@@ -167,10 +191,13 @@ def score_fuzzy_title(listing_title: str, canonical_name: str) -> float:
 
     try:
         from rapidfuzz import fuzz
+        # rapidfuzz is case-sensitive — normalise before scoring
+        a = listing_title.lower()
+        b = canonical_name.lower()
         # token_set_ratio: best for coffee names with variable word order
-        score = fuzz.token_set_ratio(listing_title, canonical_name) / 100.0
+        score = fuzz.token_set_ratio(a, b) / 100.0
         # Also try partial_ratio for short names
-        partial = fuzz.partial_ratio(listing_title, canonical_name) / 100.0
+        partial = fuzz.partial_ratio(a, b) / 100.0
         return round(max(score, partial * 0.9), 4)
     except ImportError:
         log.warning("rapidfuzz not installed — fuzzy scoring disabled")
@@ -278,7 +305,12 @@ def combine_signals(signals: MatchSignals) -> float:
         + signals.fuzzy_score * WEIGHTS["fuzzy"]
         + signals.embedding_score * WEIGHTS["embedding"]
     )
+    # No evidence at all → no confidence (no harvest-only floor)
+    if raw == 0.0:
+        return 0.0
     # Harvest multiplies the raw score (penalises different years)
+    # plus a small additive bonus when harvest agrees, gated by harvest_score
+    # so that cross-year lots can't auto-accept on other signals alone.
     adjusted = raw * signals.harvest_score + signals.harvest_score * WEIGHTS["harvest"]
     return round(min(1.0, max(0.0, adjusted)), 4)
 

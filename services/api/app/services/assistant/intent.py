@@ -170,7 +170,9 @@ def classify(message: str) -> IntentResult:
     # ── Off-topic guard ────────────────────────────────────────────────────────
     off_topic_signals = [
         r"\b(weather|stock market|football|recipe|travel|hotel|flight)\b",
-        r"\b(politics|news|sport|movie|music|book)\b",
+        r"\b(politics|news|sport|sports|movie|music|book)\b",
+        r"\bworld cup\b", r"\bolympics?\b", r"\belection\b",
+        r"\bpremier league\b", r"\b(nba|nfl|mlb)\b",
     ]
     if _matches_any(lower, off_topic_signals) and "coffee" not in lower:
         return IntentResult(intent="off_topic", confidence=0.9)
@@ -205,6 +207,20 @@ def classify(message: str) -> IntentResult:
             retrieval_plan=[RetrievalCall(
                 tool="search_coffees",
                 params={"query": text, "limit": 4},
+            )],
+        )
+
+    # ── Explicit brew method beats a generic "recommend" trigger.
+    #    e.g. "I brew filter coffee — what do you recommend?" → brew_advice,
+    #    but "filter coffee under £14" still routes to price below.
+    if brew_method and not budget and not _matches_any(lower, _PRICE_PATTERNS):
+        return IntentResult(
+            intent="brew_advice",
+            confidence=0.85,
+            params={"method": brew_method},
+            retrieval_plan=[RetrievalCall(
+                tool="find_by_brew_method",
+                params={"method": brew_method, "limit": 5},
             )],
         )
 

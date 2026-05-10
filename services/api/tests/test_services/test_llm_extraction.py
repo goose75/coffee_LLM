@@ -378,14 +378,18 @@ class TestLLMParser:
         call_count = 0
         success_response = _make_anthropic_response(_valid_payload_json())
 
+        # Defining a dedicated exception subclass avoids the CPython
+        # "__class__ assignment only supported for mutable types" error
+        # that Exception() instances raise when their class is reassigned.
+        class _FakeRateLimitError(Exception):
+            pass
+
         async def mock_create(**kwargs):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
-                # Simulate rate limit
-                exc = Exception("rate_limit exceeded")
-                exc.__class__ = type("RateLimitError", (Exception,), {})
-                raise exc
+                # Simulate rate limit — production code matches on the message
+                raise _FakeRateLimitError("rate_limit exceeded")
             return success_response
 
         with patch("app.services.extraction.llm_parser._get_anthropic_client") as mock_fn:
@@ -579,6 +583,9 @@ class TestExtractionService:
 
     def _make_session(self):
         session = AsyncMock()
+        # session.add() is sync on AsyncSession — keep it as MagicMock so
+        # calling it doesn't return an unawaited coroutine.
+        session.add = MagicMock()
         session.flush = AsyncMock()
         return session
 

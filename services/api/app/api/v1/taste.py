@@ -28,6 +28,7 @@ from app.core.database import get_db
 from app.models.canonical_bean import CanonicalBean
 from app.models.enums import ReviewStatus
 from app.models.flavour import BeanFlavourTag, FlavourTaxonomy
+from pydantic import BaseModel
 from app.schemas.taste import (
     FamilyDistribution,
     FamilyDistributionRow,
@@ -393,4 +394,185 @@ async def trigger_tag_all(
         "beans_processed": len(results),
         "total_tags_upserted": total_upserted,
         "use_llm": use_llm,
+    }
+
+
+# ── Flavour Atlas ─────────────────────────────────────────────────────────────
+
+class AtlasNode(BaseModel):
+    slug: str
+    label: str
+    depth: int
+    colour: str
+    coffee_count: int
+    children: list["AtlasNode"] = []
+
+class AtlasResponse(BaseModel):
+    families: list[AtlasNode]
+    total_coffees: int
+
+@public_router.get("/taste/atlas", response_model=AtlasResponse)
+async def get_flavour_atlas(db: AsyncSession = Depends(get_db)) -> AtlasResponse:
+    """
+    Return the full flavour taxonomy tree annotated with coffee counts.
+    Used by the Flavour Atlas page to build the interactive graph.
+    Each node includes how many canonical beans have at least one tag in that subtree.
+    """
+    # Load full taxonomy
+    tax_rows = (await db.execute(
+        select(FlavourTaxonomy).order_by(FlavourTaxonomy.depth, FlavourTaxonomy.sort_order)
+    )).scalars().all()
+
+    tax_by_slug: dict[str, FlavourTaxonomy] = {t.slug: t for t in tax_rows}
+
+    # Count distinct beans per taxonomy node (accepted tags only)
+    count_rows = (await db.execute(
+        select(FlavourTaxonomy.slug, func.count(func.distinct(BeanFlavourTag.bean_id)))
+        .join(BeanFlavourTag, BeanFlavourTag.taxonomy_id == FlavourTaxonomy.id)
+        .where(BeanFlavourTag.review_status == ReviewStatus.accepted)
+        .group_by(FlavourTaxonomy.slug)
+    )).all()
+
+    # Direct counts per slug
+    direct_counts: dict[str, int] = {slug: count for slug, count in count_rows}
+
+    # Bubble counts up to parents — a family's count = union of beans tagged anywhere in subtree
+    # We need distinct bean_ids per family subtree
+    family_bean_sets: dict[str, set] = defaultdict(set)
+    cat_bean_sets: dict[str, set] = defaultdict(set)
+
+    tag_bean_rows = (await db.execute(
+        select(FlavourTaxonomy.slug, BeanFlavourTag.bean_id)
+        .join(BeanFlavourTag, BeanFlavourTag.taxonomy_id == FlavourTaxonomy.id)
+        .where(BeanFlavourTag.review_status == ReviewStatus.accepted)
+    )).all()
+
+    for slug, bean_id in tag_bean_rows:
+        parts = slug.split(".")
+        family_bean_sets[parts[0]].add(bean_id)
+        if len(parts) >= 2:
+            cat_bean_sets[f"{parts[0]}.{parts[1]}"].add(bean_id)
+
+    # Build node tree
+    families = [t for t in tax_rows if t.depth == 0]
+    categories = [t for t in tax_rows if t.depth == 1]
+    tags = [t for t in tax_rows if t.depth == 2]
+
+    result_families: list[AtlasNode] = []
+    for fam in families:
+        fam_node = AtlasNode(
+            slug=fam.slug,
+            label=fam.label,
+            depth=0,
+            colour=fam.colour or "#888",
+            coffee_count=len(family_bean_sets.get(fam.slug, set())),
+        )
+        for cat in [c for c in categories if c.slug.startswith(fam.slug + ".")]:
+            cat_node = AtlasNode(
+                slug=cat.slug,
+                label=cat.label,
+                depth=1,
+                colour=cat.colour or fam.colour or "#888",
+                coffee_count=len(cat_bean_sets.get(cat.slug, set())),
+            )
+            for tag in [t for t in tags if t.slug.startswith(cat.slug + ".")]:
+                cat_node.children.append(AtlasNode(
+                    slug=tag.slug,
+                    label=tag.label,
+                    depth=2,
+                    colour=tag.colour or fam.colour or "#888",
+                    coffee_count=direct_counts.get(tag.slug, 0),
+                ))
+            fam_node.children.append(cat_node)
+        # Family with no categories — tags hang directly
+        if not fam_node.children:
+            for tag in [t for t in tags if t.slug.startswith(fam.slug + ".")]:
+                fam_node.children.append(AtlasNode(
+                    slug=tag.slug,
+                    label=tag.label,
+                    depth=2,
+                    colour=tag.colour or fam.colour or "#888",
+                    coffee_count=direct_counts.get(tag.slug, 0),
+                ))
+        result_families.append(fam_node)
+
+    total = len(set().union(*family_bean_sets.values())) if family_bean_sets else 0
+    return AtlasResponse(families=result_families, total_coffees=total)
+
+
+@public_router.get("/taste/atlas/coffees")
+async def get_atlas_coffees(
+    slugs: str = Query(..., description="Comma-separated flavour slugs to filter by"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=48),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Return coffees matching any of the given flavour slugs.
+    Slug can be a family (fruity), category (fruity.citrus), or tag (fruity.citrus.lemon).
+    A family slug matches all coffees with any tag in that family.
+    """
+    slug_list = [s.strip() for s in slugs.split(",") if s.strip()]
+
+    # Find all taxonomy node IDs whose slug starts with any of the requested slugs
+    all_tax = (await db.execute(select(FlavourTaxonomy))).scalars().all()
+    matching_tax_ids = [
+        t.id for t in all_tax
+        if any(t.slug == s or t.slug.startswith(s + ".") for s in slug_list)
+    ]
+
+    if not matching_tax_ids:
+        return {"data": [], "total": 0, "page": page, "page_size": page_size, "has_next": False}
+
+    # Find beans with accepted tags in any of these taxonomy nodes
+    bean_id_rows = (await db.execute(
+        select(func.distinct(BeanFlavourTag.bean_id))
+        .where(
+            BeanFlavourTag.taxonomy_id.in_(matching_tax_ids),
+            BeanFlavourTag.review_status == ReviewStatus.accepted,
+        )
+    )).scalars().all()
+
+    total = len(bean_id_rows)
+    paged_ids = bean_id_rows[(page - 1) * page_size: page * page_size]
+
+    if not paged_ids:
+        return {"data": [], "total": total, "page": page, "page_size": page_size, "has_next": False}
+
+    beans = (await db.execute(
+        select(CanonicalBean).where(CanonicalBean.id.in_(paged_ids))
+    )).scalars().all()
+
+    # Gather matched flavour slugs per bean for display
+    bean_tag_rows = (await db.execute(
+        select(BeanFlavourTag.bean_id, FlavourTaxonomy.slug, FlavourTaxonomy.label)
+        .join(FlavourTaxonomy, BeanFlavourTag.taxonomy_id == FlavourTaxonomy.id)
+        .where(BeanFlavourTag.bean_id.in_(paged_ids), BeanFlavourTag.review_status == ReviewStatus.accepted)
+    )).all()
+
+    bean_tags: dict = defaultdict(list)
+    for bid, slug, label in bean_tag_rows:
+        bean_tags[bid].append({"slug": slug, "label": label})
+
+    data = [
+        {
+            "id": str(b.id),
+            "canonical_name": b.canonical_name,
+            "origin_country": b.origin_country,
+            "origin_region": b.origin_region,
+            "process": b.process.value if b.process else None,
+            "roast_level": b.roast_level.value if b.roast_level else None,
+            "flavour_notes": b.flavour_notes,
+            "data_completeness_score": b.data_completeness_score,
+            "matched_tags": bean_tags.get(b.id, []),
+        }
+        for b in beans
+    ]
+
+    return {
+        "data": data,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_next": (page * page_size) < total,
     }
