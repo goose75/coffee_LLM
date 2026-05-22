@@ -15,6 +15,7 @@ function fmtAgo(iso: string | null): string {
 
 export default function DashboardPage() {
   const [sources, setSources] = useState<Store[]>([]);
+  const [totalSources, setTotalSources] = useState(0);
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [pendingMatches, setPendingMatches] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -26,17 +27,19 @@ export default function DashboardPage() {
       getMatches({ status: "pending", page_size: 1 }),
     ]).then(([s, r, m]) => {
       setSources(s.data);
+      setTotalSources(s.total);
       setRuns(r.data);
       setPendingMatches(m.pending_count);
     }).finally(() => setLoading(false));
   }, []);
 
   const byHealth = (h: string) => sources.filter(s => s.health_status === h).length;
-  const total = sources.length;
+  const total = totalSources || sources.length;
+  const sampleSize = sources.length;
   const healthy = byHealth("healthy");
   const stale = byHealth("stale");
   const inactive = byHealth("inactive");
-  const healthPct = total > 0 ? Math.round((healthy / total) * 100) : 0;
+  const healthPct = sampleSize > 0 ? Math.round((healthy / sampleSize) * 100) : 0;
 
   const byStrategy = sources.reduce<Record<string, number>>((acc, s) => {
     acc[s.parser_strategy] = (acc[s.parser_strategy] ?? 0) + 1;
@@ -55,11 +58,11 @@ export default function DashboardPage() {
 
       {/* KPI strip */}
       <div className="grid grid-cols-5 gap-3 mb-6">
-        <StatCard label="Sources" value={loading ? "…" : total} sub="tracked domains" />
+        <StatCard label="Sources" value={loading ? "…" : total} sub={sampleSize < total ? `${sampleSize} analyzed` : "all tracked"} />
         <StatCard
           label="Source health"
           value={loading ? "…" : `${healthPct}%`}
-          sub={`${healthy} healthy · ${stale} stale`}
+          sub={`${healthy} healthy · ${stale} stale (of ${sampleSize})`}
           color={healthPct >= 80 ? "text-emerald-400" : healthPct >= 60 ? "text-amber-400" : "text-red-400"}
         />
         <StatCard label="Inactive" value={loading ? "…" : inactive} sub="flagged off" color={inactive > 0 ? "text-neutral-400" : "text-neutral-600"} />
@@ -70,13 +73,13 @@ export default function DashboardPage() {
       <div className="grid grid-cols-3 gap-4 mb-6">
         {/* Strategy breakdown */}
         <div className="border border-neutral-800 rounded-lg p-4 col-span-1">
-          <div className="text-[10px] uppercase tracking-widest text-neutral-600 mb-3">Parser strategies</div>
+          <div className="text-[10px] uppercase tracking-widest text-neutral-600 mb-3">Parser strategies {sampleSize < total && `(${sampleSize} analyzed)`}</div>
           {Object.entries(byStrategy).map(([strategy, count]) => (
             <div key={strategy} className="flex items-center justify-between py-1.5 border-b border-neutral-800/50 last:border-0">
               <Badge value={strategy} />
               <div className="flex items-center gap-3">
                 <div className="w-24 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-amber-700/60 rounded-full" style={{ width: `${(count / total) * 100}%` }} />
+                  <div className="h-full bg-amber-700/60 rounded-full" style={{ width: `${sampleSize > 0 ? (count / sampleSize) * 100 : 0}%` }} />
                 </div>
                 <span className="text-xs text-neutral-400 w-8 text-right">{count}</span>
               </div>
@@ -87,7 +90,7 @@ export default function DashboardPage() {
 
         {/* Health breakdown */}
         <div className="border border-neutral-800 rounded-lg p-4 col-span-1">
-          <div className="text-[10px] uppercase tracking-widest text-neutral-600 mb-3">Source health</div>
+          <div className="text-[10px] uppercase tracking-widest text-neutral-600 mb-3">Source health {sampleSize < total && `(${sampleSize} analyzed)`}</div>
           {[["healthy", "Healthy", "text-emerald-400"], ["stale", "Stale", "text-amber-400"], ["unknown", "Unknown", "text-neutral-400"], ["inactive", "Inactive", "text-neutral-600"]].map(([key, label, cls]) => {
             const n = byHealth(key);
             return (
@@ -96,7 +99,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-3">
                   <div className="w-24 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
                     <div className={`h-full rounded-full ${key === "healthy" ? "bg-emerald-700/60" : key === "stale" ? "bg-amber-700/60" : "bg-neutral-700"}`}
-                      style={{ width: total > 0 ? `${(n / total) * 100}%` : "0" }} />
+                      style={{ width: sampleSize > 0 ? `${(n / sampleSize) * 100}%` : "0" }} />
                   </div>
                   <span className="text-xs text-neutral-400 w-8 text-right">{n}</span>
                 </div>
