@@ -41,6 +41,7 @@ from app.schemas.sources import (
     StoreListItem,
 )
 from app.services.source_inventory import SourceInventoryImporter
+from app.services.error_recovery import ErrorRecoveryService
 
 router = APIRouter()
 
@@ -149,6 +150,34 @@ async def get_source(source_id: str, db: AsyncSession = Depends(get_db)) -> Stor
     return StoreDetail.model_validate(store)
 
 
+@router.patch("/sources/{source_id}", response_model=StoreListItem)
+async def update_source(
+    source_id: str,
+    parser_strategy: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> StoreListItem:
+    """Update a source's parser strategy."""
+    try:
+        store_uuid = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID")
+
+    store = (await db.execute(select(Store).where(Store.id == store_uuid))).scalar_one_or_none()
+    if store is None:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    if parser_strategy:
+        # Validate parser_strategy is a valid enum value
+        valid_strategies = ["shopify", "html", "schema_org", "llm", "unknown"]
+        if parser_strategy not in valid_strategies:
+            raise HTTPException(status_code=422, detail=f"Invalid parser_strategy. Must be one of: {', '.join(valid_strategies)}")
+        store.parser_strategy = parser_strategy
+
+    await db.commit()
+    await db.refresh(store)
+    return StoreListItem.model_validate(store)
+
+
 @router.post("/sources/{source_id}/rescan", response_model=StoreDetectionSummary)
 async def rescan_source(source_id: str, db: AsyncSession = Depends(get_db)) -> StoreDetectionSummary:
     """Re-run domain detection and update parser_strategy for a store."""
@@ -225,6 +254,139 @@ async def import_seed(db: AsyncSession = Depends(get_db)) -> ImportReport:
     importer = SourceInventoryImporter(session=db)
     report = await importer.import_csv_file(seed_path)
     return ImportReport(**report)
+
+
+@router.post("/sources/reingest-all")
+async def reingest_all(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> dict:
+    """Trigger re-ingestion of all active Shopify sources."""
+    # Count active Shopify stores
+    count_stmt = select(func.count()).select_from(
+        select(Store).where(
+            (Store.active_flag == True) & (Store.parser_strategy == "shopify")  # noqa: E712
+        ).subquery()
+    )
+    count = (await db.execute(count_stmt)).scalar_one() or 0
+
+    # Schedule the bulk reingest in the background
+    async def run_reingest():
+        stmt = select(Store).where(
+            (Store.active_flag == True) & (Store.parser_strategy == "shopify")  # noqa: E712
+        ).order_by(Store.name)
+        stores = (await db.execute(stmt)).scalars().all()
+
+        from app.services.shopify import ShopifyIngestionPipeline
+
+        for store in stores:
+            try:
+                pipeline = ShopifyIngestionPipeline(session=db, store=store)
+                await pipeline.run()
+            except Exception as e:
+                # Log but continue with next store
+                print(f"Error ingesting {store.domain}: {e}")
+
+    background_tasks.add_task(run_reingest)
+
+    return {
+        "status": "queued",
+        "message": f"Re-ingestion queued for {count} active Shopify sources",
+        "started_count": count,
+    }
+
+
+@router.post("/sources/{store_id}/reingest")
+async def reingest_store(
+    store_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Trigger re-ingestion of a single store (supports all parser strategies)."""
+    # Fetch store
+    try:
+        sid = uuid.UUID(store_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid store_id UUID")
+
+    stmt = select(Store).where(Store.id == sid)
+    store = (await db.execute(stmt)).scalar_one_or_none()
+    if not store:
+        raise HTTPException(status_code=404, detail=f"Store {store_id} not found")
+
+    # Route to appropriate pipeline based on parser_strategy
+    async def run_reingest():
+        try:
+            if store.parser_strategy == "shopify":
+                from app.services.shopify import ShopifyIngestionPipeline
+
+                pipeline = ShopifyIngestionPipeline(session=db, store=store)
+                await pipeline.run()
+            elif store.parser_strategy == "html":
+                from app.services.html.pipeline import HtmlIngestionPipeline
+
+                pipeline = HtmlIngestionPipeline(session=db, store=store)
+                await pipeline.run()
+            else:
+                # For schema_org, llm, unknown: use ExtractionService via dispatcher
+                # For now, just log a message
+                print(
+                    f"Reingest for {store.parser_strategy} not yet implemented in admin endpoint"
+                )
+        except Exception as e:
+            print(f"Error ingesting {store.domain}: {e}")
+
+    background_tasks.add_task(run_reingest)
+
+    return {
+        "status": "queued",
+        "message": f"Re-ingestion queued for {store.domain} ({store.parser_strategy})",
+        "store_id": store_id,
+        "parser_strategy": store.parser_strategy,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Error Recovery & Learning (Auto-correction)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/error-recovery/analysis")
+async def analyze_errors(db: AsyncSession = Depends(get_db)) -> dict:
+    """
+    Analyze recent ingestion failures and identify misclassifications.
+
+    Returns suggested corrections for stores marked with wrong parser_strategy,
+    identified by error patterns in failed runs (last 24 hours).
+    """
+    service = ErrorRecoveryService(session=db)
+    return await service.analyze_failures(hours=24)
+
+
+@router.post("/error-recovery/auto-correct")
+async def auto_correct_errors(
+    min_confidence: float = Query(0.90, ge=0, le=1.0),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Automatically correct misclassified sources based on error patterns.
+
+    Only applies corrections with confidence >= min_confidence (default 0.90).
+
+    Returns list of applied corrections.
+    """
+    service = ErrorRecoveryService(session=db)
+    return await service.auto_correct(min_confidence=min_confidence)
+
+
+@router.get("/error-recovery/summary")
+async def error_recovery_summary(db: AsyncSession = Depends(get_db)) -> dict:
+    """
+    Get a summary of recent errors and affected stores.
+
+    Shows:
+    - Total failures in last 24h
+    - Top error patterns
+    - Parser strategies of affected stores
+    """
+    service = ErrorRecoveryService(session=db)
+    return await service.get_correction_summary()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

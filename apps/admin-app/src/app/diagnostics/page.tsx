@@ -40,6 +40,7 @@ export default function DiagnosticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState(false);
   const [corrected, setCorrected] = useState(0);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -76,6 +77,36 @@ export default function DiagnosticsPage() {
     };
     fetchData();
   }, []);
+
+  const handleApplySingleCorrection = async (correction: ErrorCorrection) => {
+    setApplyingId(correction.store_id);
+    try {
+      const result = await fetch(`${ADMIN_API}/sources/${correction.store_id}?parser_strategy=${correction.suggested_strategy}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!result.ok) {
+        setError(`Failed to apply correction for ${correction.domain}`);
+        return;
+      }
+
+      // Refresh analysis
+      const analysisRes = await fetch(`${ADMIN_API}/error-recovery/analysis`);
+      const summaryRes = await fetch(`${ADMIN_API}/error-recovery/summary`);
+
+      if (analysisRes.ok && summaryRes.ok) {
+        const analysisData = await analysisRes.json();
+        const summaryData = await summaryRes.json();
+        setAnalysis(analysisData || { analyzed: 0, corrections: [] });
+        setSummary(summaryData || { total_failures_24h: 0, top_error_patterns: [], affected_parser_strategies: {} });
+      }
+    } catch (err) {
+      setError(`Error applying correction: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setApplyingId(null);
+    }
+  };
 
   const handleAutoCorrect = async () => {
     setCorrecting(true);
@@ -244,7 +275,7 @@ export default function DiagnosticsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-800 bg-neutral-900/40">
-                  {["Domain", "Current", "Suggested", "Confidence", "Reason"].map((h) => (
+                  {["Domain", "Current", "Suggested", "Confidence", "Reason", "Action"].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-2 text-left text-[11px] font-medium text-neutral-600 uppercase tracking-wider"
@@ -271,6 +302,15 @@ export default function DiagnosticsPage() {
                     </td>
                     <td className="px-4 py-2 text-xs text-neutral-500 max-w-xs truncate">
                       {correction.reason}
+                    </td>
+                    <td className="px-4 py-2">
+                      <button
+                        onClick={() => handleApplySingleCorrection(correction)}
+                        disabled={applyingId === correction.store_id}
+                        className="text-xs text-amber-600 hover:text-amber-400 disabled:text-neutral-600 underline disabled:cursor-wait"
+                      >
+                        {applyingId === correction.store_id ? "Applying..." : "Apply"}
+                      </button>
                     </td>
                   </tr>
                 ))}
