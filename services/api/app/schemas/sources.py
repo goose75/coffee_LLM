@@ -82,9 +82,7 @@ class StoreListItem(StoreBase):
 
         Order of precedence:
           inactive    — active_flag is False
-          no_pipeline — parser_strategy isn't one we ingest yet (only shopify
-                        has a pipeline today). Old runs from a previous
-                        strategy aren't treated as current failures.
+          no_pipeline — parser_strategy isn't one we ingest yet
           failing     — last run.status == failed
           degraded    — last run.status == partial (had errors)
           unknown     — never crawled and no run on record
@@ -94,7 +92,9 @@ class StoreListItem(StoreBase):
         if not self.active_flag:
             return "inactive"
 
-        if self.parser_strategy != "shopify":
+        # Recognize all implemented pipelines
+        supported_strategies = {"shopify", "html", "schema_org", "llm"}
+        if self.parser_strategy not in supported_strategies:
             return "no_pipeline"
 
         if self.last_run is not None:
