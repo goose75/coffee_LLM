@@ -15,6 +15,7 @@ const NAV = [
   { href: "/dashboard",       label: "Dashboard",      icon: "⬡" },
   { href: "/sources",         label: "Sources",         icon: "◈" },
   { href: "/ingestion-runs",  label: "Ingestion Runs",  icon: "↻" },
+  { href: "/diagnostics",     label: "Diagnostics",     icon: "⚙" },
   { href: "/extractions",     label: "Extractions",     icon: "⊞" },
   { href: "/review/matches",  label: "Match Review",    icon: "⊕" },
   { href: "/beans",           label: "Canonical Beans", icon: "◉" },
