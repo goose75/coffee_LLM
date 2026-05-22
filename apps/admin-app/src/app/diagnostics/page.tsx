@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { Badge, SkeletonRows } from "@/components/ui";
 
+// Import the properly configured API client
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const ADMIN_API = `${API_BASE}/api/v1/admin`;
+
 interface ErrorCorrection {
   domain: string;
   store_id: string;
@@ -40,11 +44,16 @@ export default function DiagnosticsPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const analysisRes = await fetch("/api/v1/admin/error-recovery/analysis");
-        const summaryRes = await fetch("/api/v1/admin/error-recovery/summary");
+        console.log("Fetching diagnostics from:", `${ADMIN_API}/error-recovery/analysis`);
+
+        const analysisRes = await fetch(`${ADMIN_API}/error-recovery/analysis`);
+        const summaryRes = await fetch(`${ADMIN_API}/error-recovery/summary`);
+
+        console.log("Analysis response:", analysisRes.status, analysisRes.statusText);
+        console.log("Summary response:", summaryRes.status, summaryRes.statusText);
 
         if (!analysisRes.ok || !summaryRes.ok) {
-          setError("Failed to fetch diagnostics data");
+          setError(`Failed to fetch diagnostics data (Analysis: ${analysisRes.status}, Summary: ${summaryRes.status})`);
           setLoading(false);
           return;
         }
@@ -52,10 +61,15 @@ export default function DiagnosticsPage() {
         const analysisData = await analysisRes.json();
         const summaryData = await summaryRes.json();
 
+        console.log("Analysis data:", analysisData);
+        console.log("Summary data:", summaryData);
+
         setAnalysis(analysisData || { analyzed: 0, corrections: [] });
         setSummary(summaryData || { total_failures_24h: 0, top_error_patterns: [], affected_parser_strategies: {} });
       } catch (err) {
-        setError(`Error loading diagnostics: ${err instanceof Error ? err.message : "Unknown error"}`);
+        const errorMsg = err instanceof Error ? err.message : "Unknown error";
+        console.error("Diagnostics fetch error:", errorMsg);
+        setError(`Error loading diagnostics: ${errorMsg}`);
       } finally {
         setLoading(false);
       }
@@ -66,7 +80,7 @@ export default function DiagnosticsPage() {
   const handleAutoCorrect = async () => {
     setCorrecting(true);
     try {
-      const result = await fetch("/api/v1/admin/error-recovery/auto-correct?min_confidence=0.85", {
+      const result = await fetch(`${ADMIN_API}/error-recovery/auto-correct?min_confidence=0.85`, {
         method: "POST",
       });
 
@@ -83,8 +97,8 @@ export default function DiagnosticsPage() {
       setLoading(true);
       setError(null);
 
-      const analysisRes = await fetch("/api/v1/admin/error-recovery/analysis");
-      const summaryRes = await fetch("/api/v1/admin/error-recovery/summary");
+      const analysisRes = await fetch(`${ADMIN_API}/error-recovery/analysis`);
+      const summaryRes = await fetch(`${ADMIN_API}/error-recovery/summary`);
 
       if (analysisRes.ok && summaryRes.ok) {
         const analysisData = await analysisRes.json();
