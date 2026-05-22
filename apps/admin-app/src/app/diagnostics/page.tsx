@@ -117,8 +117,24 @@ export default function DiagnosticsPage() {
         </div>
       )}
 
+      {/* No Data Message */}
+      {!loading && !error && (!summary || summary.total_failures_24h === 0) && (
+        <div className="mb-6 p-6 border border-neutral-800 rounded-lg bg-neutral-900/40">
+          <div className="text-center">
+            <div className="text-4xl mb-2">✅</div>
+            <h2 className="text-lg font-medium text-emerald-400 mb-2">No failures detected</h2>
+            <p className="text-sm text-neutral-400 mb-4">
+              Great! All ingestion runs in the last 24 hours completed successfully.
+            </p>
+            <p className="text-xs text-neutral-600">
+              Once ingestion failures occur, they will appear here for analysis and auto-correction.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Summary Cards */}
-      {summary && (
+      {summary && summary.total_failures_24h > 0 && (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="border border-neutral-800 rounded-lg p-4">
             <div className="text-[10px] uppercase tracking-widest text-neutral-600 mb-2">
@@ -165,8 +181,18 @@ export default function DiagnosticsPage() {
         </div>
       )}
 
+      {/* Loading State */}
+      {loading && (
+        <div className="mb-6 p-6 border border-neutral-800 rounded-lg">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin">⟳</div>
+            <span className="text-sm text-neutral-400">Loading diagnostics...</span>
+          </div>
+        </div>
+      )}
+
       {/* Error Patterns */}
-      {summary && summary.top_error_patterns.length > 0 && (
+      {summary && summary.top_error_patterns.length > 0 && summary.total_failures_24h > 0 && (
         <div className="border border-neutral-800 rounded-lg overflow-hidden mb-6">
           <div className="px-4 py-3 border-b border-neutral-800 bg-neutral-900/40">
             <span className="text-sm font-medium text-neutral-300">Top Error Patterns</span>
@@ -189,7 +215,7 @@ export default function DiagnosticsPage() {
       )}
 
       {/* Suggested Corrections */}
-      {analysis && (
+      {analysis && analysis.corrections.length > 0 && (
         <div className="border border-neutral-800 rounded-lg overflow-hidden">
           <div className="px-4 py-3 border-b border-neutral-800 bg-neutral-900/40">
             <span className="text-sm font-medium text-neutral-300">
