@@ -108,7 +108,11 @@ class IngestionDispatcher:
 
                 if job.parser_strategy == "shopify":
                     await self._run_shopify(session, store, job, result)
-                elif job.parser_strategy in ("schema_org", "html", "llm"):
+                elif job.parser_strategy == "html":
+                    await self._run_html(session, store, job, result)
+                elif job.parser_strategy == "schema_org":
+                    await self._run_schema_org(session, store, job, result)
+                elif job.parser_strategy == "llm":
                     await self._run_extraction(session, store, job, result)
                 else:
                     result.errors.append(f"Unknown parser_strategy: {job.parser_strategy}")
@@ -162,6 +166,72 @@ class IngestionDispatcher:
 
         except asyncio.TimeoutError:
             result.errors.append("Shopify pipeline timed out after 300s")
+            result.is_soft_failure = True
+
+    async def _run_html(
+        self,
+        session: AsyncSession,
+        store,
+        job: IngestionJob,
+        result: DispatchResult,
+    ) -> None:
+        """Run the HTML extraction pipeline."""
+        from app.services.html.pipeline import HtmlIngestionPipeline
+        from app.services.storage.backend import get_storage_backend
+
+        storage = get_storage_backend()
+        pipeline = HtmlIngestionPipeline(session=session, store=store, storage=storage)
+
+        try:
+            counters = await asyncio.wait_for(
+                pipeline.run(),
+                timeout=600.0,  # 10 minutes for HTML (more complex than Shopify)
+            )
+            result.listings_created = counters.records_created
+            result.listings_updated = counters.records_updated
+            result.price_writes = 0
+            result.pages_processed = counters.pages_fetched
+            if counters.errors:
+                errs = counters.errors if isinstance(counters.errors, list) else []
+                result.errors.extend(
+                    [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errs[:5]]
+                )
+
+        except asyncio.TimeoutError:
+            result.errors.append("HTML pipeline timed out after 600s")
+            result.is_soft_failure = True
+
+    async def _run_schema_org(
+        self,
+        session: AsyncSession,
+        store,
+        job: IngestionJob,
+        result: DispatchResult,
+    ) -> None:
+        """Run the schema.org extraction pipeline."""
+        from app.services.schema_org.pipeline import SchemaOrgIngestionPipeline
+        from app.services.storage.backend import get_storage_backend
+
+        storage = get_storage_backend()
+        pipeline = SchemaOrgIngestionPipeline(session=session, store=store, storage=storage)
+
+        try:
+            run = await asyncio.wait_for(
+                pipeline.run(),
+                timeout=300.0,  # 5 minutes for schema.org (deterministic, less complex)
+            )
+            result.listings_created = run.records_created
+            result.listings_updated = run.records_updated
+            result.price_writes = 0
+            result.pages_processed = run.records_seen
+            if run.errors:
+                errs = run.errors if isinstance(run.errors, list) else []
+                result.errors.extend(
+                    [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errs[:5]]
+                )
+
+        except asyncio.TimeoutError:
+            result.errors.append("Schema.org pipeline timed out after 300s")
             result.is_soft_failure = True
 
     async def _run_extraction(
