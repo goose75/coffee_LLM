@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge, ConfidenceBar, DataTable, SkeletonRows } from "@/components/ui";
+import { Badge, SkeletonRows } from "@/components/ui";
 
 interface ErrorCorrection {
   domain: string;
@@ -33,19 +33,34 @@ export default function DiagnosticsPage() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [summary, setSummary] = useState<CorrectionSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState(false);
   const [corrected, setCorrected] = useState(0);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/v1/admin/error-recovery/analysis").then((r) => r.json()),
-      fetch("/api/v1/admin/error-recovery/summary").then((r) => r.json()),
-    ])
-      .then(([analysisData, summaryData]) => {
-        setAnalysis(analysisData);
-        setSummary(summaryData);
-      })
-      .finally(() => setLoading(false));
+    const fetchData = async () => {
+      try {
+        const analysisRes = await fetch("/api/v1/admin/error-recovery/analysis");
+        const summaryRes = await fetch("/api/v1/admin/error-recovery/summary");
+
+        if (!analysisRes.ok || !summaryRes.ok) {
+          setError("Failed to fetch diagnostics data");
+          setLoading(false);
+          return;
+        }
+
+        const analysisData = await analysisRes.json();
+        const summaryData = await summaryRes.json();
+
+        setAnalysis(analysisData || { analyzed: 0, corrections: [] });
+        setSummary(summaryData || { total_failures_24h: 0, top_error_patterns: [], affected_parser_strategies: {} });
+      } catch (err) {
+        setError(`Error loading diagnostics: ${err instanceof Error ? err.message : "Unknown error"}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
   }, []);
 
   const handleAutoCorrect = async () => {
@@ -53,21 +68,35 @@ export default function DiagnosticsPage() {
     try {
       const result = await fetch("/api/v1/admin/error-recovery/auto-correct?min_confidence=0.85", {
         method: "POST",
-      }).then((r) => r.json());
-      setCorrected(result.corrected || 0);
+      });
+
+      if (!result.ok) {
+        setError("Failed to apply corrections");
+        return;
+      }
+
+      const data = await result.json();
+      setCorrected(data.corrected || 0);
+
       // Refresh analysis
       setAnalysis(null);
       setLoading(true);
-      Promise.all([
-        fetch("/api/v1/admin/error-recovery/analysis").then((r) => r.json()),
-        fetch("/api/v1/admin/error-recovery/summary").then((r) => r.json()),
-      ]).then(([analysisData, summaryData]) => {
-        setAnalysis(analysisData);
-        setSummary(summaryData);
-        setLoading(false);
-      });
+      setError(null);
+
+      const analysisRes = await fetch("/api/v1/admin/error-recovery/analysis");
+      const summaryRes = await fetch("/api/v1/admin/error-recovery/summary");
+
+      if (analysisRes.ok && summaryRes.ok) {
+        const analysisData = await analysisRes.json();
+        const summaryData = await summaryRes.json();
+        setAnalysis(analysisData || { analyzed: 0, corrections: [] });
+        setSummary(summaryData || { total_failures_24h: 0, top_error_patterns: [], affected_parser_strategies: {} });
+      }
+    } catch (err) {
+      setError(`Error applying corrections: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setCorrecting(false);
+      setLoading(false);
     }
   };
 
@@ -77,6 +106,16 @@ export default function DiagnosticsPage() {
         <h1 className="text-lg font-medium text-neutral-100">Ingestion Diagnostics</h1>
         <p className="text-sm text-neutral-500 mt-0.5">Analyze and fix ingestion failures.</p>
       </div>
+
+      {/* Error State */}
+      {error && (
+        <div className="mb-6 p-4 border border-red-800/50 bg-red-950/20 rounded-lg">
+          <div className="text-sm text-red-400">⚠️ {error}</div>
+          <div className="text-xs text-red-500 mt-2">
+            Make sure the API server is running and endpoints are accessible.
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       {summary && (
@@ -185,8 +224,10 @@ export default function DiagnosticsPage() {
                     <td className="px-4 py-2">
                       <Badge value={correction.suggested_strategy} />
                     </td>
-                    <td className="px-4 py-2">
-                      <ConfidenceBar value={correction.confidence} />
+                    <td className="px-4 py-2 text-xs">
+                      <span className={correction.confidence >= 0.9 ? "text-emerald-400" : correction.confidence >= 0.85 ? "text-amber-400" : "text-neutral-400"}>
+                        {Math.round(correction.confidence * 100)}%
+                      </span>
                     </td>
                     <td className="px-4 py-2 text-xs text-neutral-500 max-w-xs truncate">
                       {correction.reason}
