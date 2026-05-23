@@ -106,9 +106,11 @@ class HtmlIngestionPipeline:
         self.counters = IngestionCounters()
         self._run: IngestionRun | None = None
         self._now = datetime.now(timezone.utc)
+        # Use realistic browser User-Agent to avoid bot blocking
+        # Many sites block requests with "Bot" in the User-Agent
         self._user_agent = (
-            "CoffeePlatformBot/1.0 "
-            "(+https://coffeeplatform.co.uk/bot; data@coffeeplatform.co.uk)"
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
 
     # ── Main entry point ──────────────────────────────────────────────────────
@@ -233,12 +235,30 @@ class HtmlIngestionPipeline:
         try:
             log.debug(f"Attempting to discover product pages from {sitemap_url}")
 
-            # Fetch sitemap.xml with timeout
-            req = urllib.request.Request(
-                sitemap_url, headers={"User-Agent": self._user_agent}
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                sitemap_bytes = response.read()
+            # Fetch sitemap.xml with proper headers
+            headers = {
+                "User-Agent": self._user_agent,
+                "Accept": "application/xml,text/xml,*/*;q=0.9",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate",
+                "Connection": "keep-alive",
+            }
+            req = urllib.request.Request(sitemap_url, headers=headers)
+
+            # Retry on transient errors (429, 503)
+            for attempt in range(3):
+                try:
+                    with urllib.request.urlopen(req, timeout=15) as response:
+                        sitemap_bytes = response.read()
+                    break
+                except urllib.error.HTTPError as exc:
+                    if exc.code in (429, 503) and attempt < 2:
+                        import time
+                        wait_time = 2 ** attempt
+                        log.warning(f"Rate limited on sitemap ({exc.code}), retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
+                    raise
 
             # Parse XML
             root = ET.fromstring(sitemap_bytes)
@@ -331,10 +351,15 @@ class HtmlIngestionPipeline:
                 visited.add(url)
 
                 try:
-                    # Fetch page with timeout
-                    req = urllib.request.Request(
-                        url, headers={"User-Agent": self._user_agent}
-                    )
+                    # Fetch page with timeout and browser headers
+                    headers = {
+                        "User-Agent": self._user_agent,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.5",
+                        "Accept-Encoding": "gzip, deflate",
+                        "Connection": "keep-alive",
+                    }
+                    req = urllib.request.Request(url, headers=headers)
                     with urllib.request.urlopen(req, timeout=10) as response:
                         html_bytes = response.read()
 
@@ -474,27 +499,65 @@ class HtmlIngestionPipeline:
             )
             self.counters.pages_failed += 1
 
-    async def _fetch_page(self, url: str) -> bytes:
+    async def _fetch_page(self, url: str, retries: int = 3) -> bytes:
         """
-        Fetch HTML from URL with timeout and error handling.
+        Fetch HTML from URL with timeout, proper headers, and retry logic.
+
+        Uses realistic browser headers to avoid bot blocking.
+        Retries with exponential backoff on transient errors.
 
         Returns:
             Raw HTML bytes
         """
-        try:
-            req = urllib.request.Request(
-                url, headers={"User-Agent": self._user_agent}
-            )
-            # urllib.request is synchronous, but we're in async context
-            # For now, use blocking call (future: use httpx for true async)
-            with urllib.request.urlopen(req, timeout=30) as response:
-                return response.read()
-        except urllib.error.HTTPError as exc:
-            raise Exception(f"HTTP {exc.code} from {url}: {exc.reason}") from exc
-        except urllib.error.URLError as exc:
-            raise Exception(f"URL error for {url}: {exc.reason}") from exc
-        except Exception as exc:
-            raise Exception(f"Failed to fetch {url}: {exc}") from exc
+        import time
+
+        # Headers that mimic a real browser request
+        headers = {
+            "User-Agent": self._user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+
+        last_error = None
+        for attempt in range(retries):
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    return response.read()
+            except urllib.error.HTTPError as exc:
+                last_error = f"HTTP {exc.code} from {url}: {exc.reason}"
+                # 429 (Too Many Requests) and 503 (Service Unavailable) are transient
+                if exc.code in (429, 503) and attempt < retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    log.warning(f"Rate limited ({exc.code}), retrying in {wait_time}s: {url}")
+                    time.sleep(wait_time)
+                    continue
+                # 403/401 are permanent auth issues, don't retry
+                if exc.code in (403, 401):
+                    raise Exception(last_error) from exc
+                # Other HTTP errors: retry once
+                if attempt < retries - 1:
+                    wait_time = 1
+                    log.warning(f"HTTP error {exc.code}, retrying in {wait_time}s: {url}")
+                    time.sleep(wait_time)
+                    continue
+                raise Exception(last_error) from exc
+            except urllib.error.URLError as exc:
+                last_error = f"URL error for {url}: {exc.reason}"
+                if attempt < retries - 1:
+                    log.warning(f"Connection error, retrying: {url}")
+                    time.sleep(1)
+                    continue
+                raise Exception(last_error) from exc
+            except Exception as exc:
+                last_error = f"Failed to fetch {url}: {exc}"
+                raise Exception(last_error) from exc
+
+        raise Exception(f"Failed to fetch after {retries} attempts: {last_error}")
 
     async def _process_product(
         self,
