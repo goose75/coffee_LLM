@@ -823,6 +823,85 @@ async def reject_match(
     )
 
 
+@router.post("/review/create-canonicals-from-listings", response_model=dict)
+async def create_canonicals_from_unmatched(
+    limit: int = Query(None, ge=1, description="Max canonicals to create (None = all)"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Directly create canonical beans from unmatched bean listings.
+
+    For each unmatched listing, creates a new canonical bean with its extracted data,
+    then links the listing to it. This bypasses the matching pipeline and is useful
+    when you have many listings with no good matches to existing canonicals.
+    """
+    from sqlalchemy import and_
+
+    # Get all unmatched listings
+    stmt = (
+        select(BeanListing)
+        .where(BeanListing.canonical_bean_id == None)  # noqa: E712
+        .order_by(BeanListing.first_seen_at.desc())
+    )
+
+    if limit:
+        stmt = stmt.limit(limit)
+
+    unmatched = (await db.execute(stmt)).scalars().all()
+
+    if not unmatched:
+        return {
+            "status": "ok",
+            "message": "No unmatched listings",
+            "total": 0,
+            "created": 0,
+            "linked": 0,
+            "errors": 0,
+        }
+
+    created_count = 0
+    error_count = 0
+
+    for listing in unmatched:
+        try:
+            # Create new canonical from listing
+            canonical = CanonicalBean(
+                canonical_name=listing.raw_title or "Unknown",
+                origin_country=listing.origin_label_raw,
+                roast_level=listing.roast_label_raw,
+                varietal=[listing.varietal_label_raw] if listing.varietal_label_raw else [],
+                process=listing.process_label_raw,
+                flavour_notes=[],
+                decaf_flag=False,
+                espresso_suitable_flag=False,
+                filter_suitable_flag=False,
+                data_completeness_score=0.3,
+            )
+            db.add(canonical)
+            await db.flush()
+
+            # Link listing to canonical
+            listing.canonical_bean_id = canonical.id
+            created_count += 1
+
+        except Exception as exc:
+            log.error(f"Error creating canonical for listing {listing.id}: {exc}")
+            error_count += 1
+            await db.rollback()
+            continue
+
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "message": f"Created {created_count} canonical beans",
+        "total": len(unmatched),
+        "created": created_count,
+        "linked": created_count,
+        "errors": error_count,
+    }
+
+
 @router.post("/review/match-unmatched", response_model=dict)
 async def match_all_unmatched_listings(
     limit: int = Query(None, ge=1, description="Max listings to match (None = all)"),
