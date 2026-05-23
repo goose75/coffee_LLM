@@ -823,6 +823,71 @@ async def reject_match(
     )
 
 
+@router.post("/review/match-unmatched", response_model=dict)
+async def match_all_unmatched_listings(
+    limit: int = Query(None, ge=1, description="Max listings to match (None = all)"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Bulk match all unmatched bean listings.
+
+    For each listing without a canonical_bean_id:
+    1. Run the matching pipeline
+    2. Auto-accept high-confidence matches (≥0.78)
+    3. Create pending matches for review (0.55-0.78)
+    4. Create new canonical beans for unmatched (<0.55)
+
+    This operation is safe to run repeatedly (idempotent).
+    """
+    from sqlalchemy import and_
+
+    # Fetch all unmatched listings
+    stmt = (
+        select(BeanListing)
+        .where(BeanListing.canonical_bean_id == None)  # noqa: E712
+        .order_by(BeanListing.first_seen_at.desc())
+    )
+
+    if limit:
+        stmt = stmt.limit(limit)
+
+    unmatched_listings = (await db.execute(stmt)).scalars().all()
+
+    if not unmatched_listings:
+        return {
+            "status": "ok",
+            "message": "No unmatched listings found",
+            "total": 0,
+            "matched": 0,
+            "auto_accepted": 0,
+            "pending_review": 0,
+            "new_canonical": 0,
+            "errors": 0,
+        }
+
+    # Run matching batch
+    service = CanonicalMatchingService(db)
+    decisions = await service.match_batch(unmatched_listings)
+
+    # Summarize results
+    auto_accepted = sum(1 for d in decisions if d.outcome == "auto_accepted")
+    pending = sum(1 for d in decisions if d.outcome == "review_queued")
+    new_canonical = sum(1 for d in decisions if d.outcome == "new_canonical")
+    errors = sum(1 for d in decisions if d.outcome == "error")
+    already = sum(1 for d in decisions if d.outcome == "already_matched")
+
+    return {
+        "status": "ok",
+        "message": f"Matched {len(unmatched_listings)} listings",
+        "total": len(unmatched_listings),
+        "auto_accepted": auto_accepted,
+        "pending_review": pending,
+        "new_canonical": new_canonical,
+        "already_matched": already,
+        "errors": errors,
+    }
+
+
 @router.post("/review/matches/bulk-accept", response_model=BulkReviewResponse)
 async def bulk_accept_matches(
     body: BulkReviewRequest,
