@@ -159,7 +159,7 @@ class HtmlIngestionPipeline:
     async def _fetch_source_pages(self) -> list[SourcePage]:
         """
         Get all known source_pages for this store.
-        If none exist, try to discover from sitemap.xml, then fallback to homepage.
+        If none exist, try to discover from sitemap.xml, then breadth-first crawl, then homepage.
         """
         stmt = (
             select(SourcePage)
@@ -186,18 +186,37 @@ class HtmlIngestionPipeline:
                 await self.session.flush()
                 pages = (await self.session.execute(stmt)).scalars().all()
             else:
-                # Fallback: Create homepage page as starting point
-                homepage_url = self.store.homepage_url or f"https://{self.store.domain}"
-                source_page = SourcePage(
-                    store_id=self.store.id,
-                    url=homepage_url,
-                    page_type=PageType.homepage,
-                    parser_strategy=ParserStrategy.html,
-                    discovered_at=self._now,
-                )
-                self.session.add(source_page)
-                await self.session.flush()
-                pages = [source_page]
+                # Fallback: Try breadth-first crawl from homepage
+                log.info(f"Sitemap discovery failed for {self.store.domain}, trying breadth-first crawl...")
+                crawled_urls = await self._discover_from_homepage_crawl()
+
+                if crawled_urls:
+                    # Create source pages from crawled URLs
+                    for url in crawled_urls[:200]:  # Limit to 200 pages per run
+                        source_page = SourcePage(
+                            store_id=self.store.id,
+                            url=url,
+                            page_type=PageType.product,
+                            parser_strategy=ParserStrategy.html,
+                            discovered_at=self._now,
+                        )
+                        self.session.add(source_page)
+                    await self.session.flush()
+                    pages = (await self.session.execute(stmt)).scalars().all()
+                else:
+                    # Final fallback: Create homepage page as starting point
+                    log.warning(f"No product pages found for {self.store.domain}, using homepage only")
+                    homepage_url = self.store.homepage_url or f"https://{self.store.domain}"
+                    source_page = SourcePage(
+                        store_id=self.store.id,
+                        url=homepage_url,
+                        page_type=PageType.homepage,
+                        parser_strategy=ParserStrategy.html,
+                        discovered_at=self._now,
+                    )
+                    self.session.add(source_page)
+                    await self.session.flush()
+                    pages = [source_page]
 
         return pages
 
@@ -277,6 +296,101 @@ class HtmlIngestionPipeline:
             return []
         except Exception as exc:
             log.warning(f"Error discovering from sitemap: {exc}")
+            return []
+
+    async def _discover_from_homepage_crawl(self) -> list[str]:
+        """
+        Breadth-first crawl from homepage to find product pages.
+
+        Uses BFS to crawl up to 50 pages looking for product links.
+        Returns URLs that match product patterns.
+        """
+        homepage_url = self.store.homepage_url or f"https://{self.store.domain}"
+        product_urls = set()
+        visited = set()
+        queue = [homepage_url]
+
+        # Product link patterns to match
+        product_patterns = [
+            r"/product[s]?/",
+            r"/shop/",
+            r"/item[s]?/",
+            r"/coffee[s]?/",
+            r"/roast[s]?/",
+            r"/bean[s]?/",
+        ]
+
+        max_crawl_pages = 50  # Limit crawl depth to avoid excessive requests
+
+        try:
+            while queue and len(visited) < max_crawl_pages:
+                url = queue.pop(0)
+                if url in visited:
+                    continue
+
+                visited.add(url)
+
+                try:
+                    # Fetch page with timeout
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": self._user_agent}
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        html_bytes = response.read()
+
+                    # Parse HTML to find links
+                    from html.parser import HTMLParser
+
+                    class LinkExtractor(HTMLParser):
+                        def __init__(self):
+                            super().__init__()
+                            self.links = []
+
+                        def handle_starttag(self, tag, attrs):
+                            if tag == "a":
+                                for attr, value in attrs:
+                                    if attr == "href" and value:
+                                        self.links.append(value)
+
+                    extractor = LinkExtractor()
+                    extractor.feed(html_bytes.decode('utf-8', errors='ignore'))
+
+                    # Process discovered links
+                    for link in extractor.links:
+                        # Convert relative URLs to absolute
+                        if link.startswith('/'):
+                            link = f"https://{self.store.domain}{link}"
+                        elif link.startswith('http'):
+                            pass
+                        else:
+                            link = f"https://{self.store.domain}/{link}"
+
+                        # Remove fragments and query params for matching
+                        clean_url = link.split('#')[0].split('?')[0]
+
+                        # Check if it's a product page
+                        if any(re.search(pattern, clean_url, re.IGNORECASE) for pattern in product_patterns):
+                            product_urls.add(link)
+
+                        # Add to queue if it's from same domain and not yet visited
+                        if clean_url not in visited and self.store.domain in clean_url:
+                            queue.append(clean_url)
+
+                except urllib.error.HTTPError as exc:
+                    log.debug(f"HTTP {exc.code} crawling {url}: {exc.reason}")
+                except urllib.error.URLError as exc:
+                    log.debug(f"URL error crawling {url}: {exc.reason}")
+                except Exception as exc:
+                    log.debug(f"Error crawling {url}: {exc}")
+
+            log.info(
+                f"Discovered {len(product_urls)} product pages for {self.store.domain} "
+                f"from breadth-first crawl ({len(visited)} pages visited)"
+            )
+            return sorted(list(product_urls))
+
+        except Exception as exc:
+            log.warning(f"Error in homepage crawl for {self.store.domain}: {exc}")
             return []
 
     # ── Page processing ───────────────────────────────────────────────────────

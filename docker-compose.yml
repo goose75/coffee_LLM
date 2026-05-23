@@ -115,7 +115,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://coffee:coffee@postgres:5432/coffee_platform
       REDIS_URL: redis://redis:6379/0
-      WORKER_COUNT: "3"
+      WORKER_COUNT: "6"
       LOG_LEVEL: INFO
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/raw_storage
