@@ -42,6 +42,7 @@ from app.schemas.sources import (
 )
 from app.services.source_inventory import SourceInventoryImporter
 from app.services.error_recovery import ErrorRecoveryService
+from app.api.v1 import admin_feedback
 
 router = APIRouter()
 
@@ -1448,3 +1449,10 @@ async def update_canonical_bean(
     await db.commit()
     await db.refresh(bean)
     return CanonicalBeanItem.model_validate(bean)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feedback loops (Phase 4)
+
+# Include feedback router endpoints
+router.include_router(admin_feedback.router)

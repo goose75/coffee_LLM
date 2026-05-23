@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # ── LLM ──────────────────────────────────────────────────────────────────
     ANTHROPIC_API_KEY: str = ""
-    LLM_MODEL: str = "claude-sonnet-4-20250514"
+    LLM_MODEL: str = "claude-opus-4-1"
 
     # ── Embeddings ────────────────────────────────────────────────────────────
     EMBEDDING_MODEL: str = "text-embedding-3-small"

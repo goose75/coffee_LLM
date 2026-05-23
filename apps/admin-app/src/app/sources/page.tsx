@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getSources, rescanSource, triggerIngest, importSeed, type Store, type SourceFilters } from "@/lib/api";
+import { getSources, rescanSource, triggerIngest, importSeed, triggerReingestionAll, type Store, type SourceFilters } from "@/lib/api";
 import { Badge, DataTable, SkeletonRows, PageHeader, Pagination, EmptyState, ErrorBanner, FilterBar, FilterSearch, FilterSelect, Btn } from "@/components/ui";
 
 function fmtAge(iso: string | null, freqH: number): string {
@@ -66,6 +66,15 @@ export default function SourcesPage() {
     finally { setActioning(null); }
   };
 
+  const handleReingestionAll = async () => {
+    setActioning("reingest-all");
+    try {
+      const r = await triggerReingestionAll();
+      setBanner(`Re-ingestion triggered for all sources${r.started_count ? ` (${r.started_count} sources)` : ""}`);
+    } catch (e: any) { setError(e.message); }
+    finally { setActioning(null); }
+  };
+
   const setFilter = (k: keyof SourceFilters, v: unknown) => setFilters(f => ({ ...f, [k]: v || undefined }));
 
   return (
@@ -74,9 +83,14 @@ export default function SourcesPage() {
         title="Source Inventory"
         subtitle="All tracked UK coffee domains with detection strategy and crawl health."
         actions={
-          <Btn onClick={handleSeed} disabled={actioning === "seed"} variant="primary">
-            {actioning === "seed" ? "Importing…" : "Import seed CSV"}
-          </Btn>
+          <div className="flex gap-2">
+            <Btn onClick={handleReingestionAll} disabled={actioning === "reingest-all"} variant="primary">
+              {actioning === "reingest-all" ? "Re-scanning…" : "Re-scan All Sources"}
+            </Btn>
+            <Btn onClick={handleSeed} disabled={actioning === "seed"} variant="default">
+              {actioning === "seed" ? "Importing…" : "Import seed CSV"}
+            </Btn>
+          </div>
         }
       />
 

@@ -37,18 +37,14 @@ from dataclasses import dataclass
 
 from app.services.extraction.llm_validator import ValidatedLLMResponse, validate_llm_response
 from app.services.extraction.payload import ExtractionPayload, ExtractionResult
-from app.services.extraction.prompts.v1 import (
-    MAX_OUTPUT_TOKENS,
-    PROMPT_VERSION,
-    SYSTEM_PROMPT,
-    build_messages,
-)
+from app.services.extraction.prompts import v1
+from app.services.extraction.prompts import v2
 
 log = logging.getLogger(__name__)
 
 # ── API constants ─────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-opus-4-1"
 MAX_RETRIES = 3
 BASE_BACKOFF_S = 2.0
 MAX_BACKOFF_S = 30.0
@@ -97,32 +93,59 @@ class LLMParser:
         self,
         model: str | None = None,
         max_retries: int = MAX_RETRIES,
+        prompt_version: str = "v1.0.0",
     ) -> None:
         self.model = model or DEFAULT_MODEL
         self.max_retries = max_retries
+        self.prompt_version = prompt_version
 
-    async def extract(self, page_text: str, url: str) -> LLMExtractionResult:
+    async def extract(
+        self,
+        page_text: str,
+        url: str,
+        domain_context: str = "",
+        historical_pattern: str = "",
+    ) -> LLMExtractionResult:
         """
         Extract coffee data from cleaned page text.
 
         Args:
             page_text: Cleaned text content of the page (no HTML tags).
-            url:       Source URL, used in the prompt and for logging.
+            url: Source URL, used in the prompt and for logging.
+            domain_context: Optional roaster type: "specialty", "commodity", or "unknown"
+            historical_pattern: Optional summary of previous extractions from this domain
 
         Returns:
             LLMExtractionResult — never raises.
         """
         start_ms = int(time.monotonic() * 1000)
-        messages = build_messages(page_text, url)
+
+        # Select prompt version and builder
+        if self.prompt_version == "v2.0.0":
+            messages = v2.build_messages(
+                page_text,
+                url,
+                domain_context=domain_context,
+                historical_pattern=historical_pattern,
+            )
+            system_prompt = v2.get_system_prompt(domain_context, historical_pattern)
+            max_output_tokens = v2.MAX_OUTPUT_TOKENS
+        else:
+            # Default to v1.0.0
+            messages = v1.build_messages(page_text, url)
+            system_prompt = v1.SYSTEM_PROMPT
+            max_output_tokens = v1.MAX_OUTPUT_TOKENS
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                raw_text, input_tokens, output_tokens = await self._call_api(messages)
+                raw_text, input_tokens, output_tokens = await self._call_api(
+                    messages, system_prompt, max_output_tokens
+                )
 
                 duration_ms = int(time.monotonic() * 1000) - start_ms
                 log.debug(
-                    "LLM call for %s: %d input tokens, %d output tokens, %dms",
-                    url, input_tokens, output_tokens, duration_ms,
+                    "LLM call for %s (prompt %s): %d input tokens, %d output tokens, %dms",
+                    url, self.prompt_version, input_tokens, output_tokens, duration_ms,
                 )
 
                 validated = validate_llm_response(raw_text)
@@ -131,7 +154,7 @@ class LLMParser:
                 return LLMExtractionResult(
                     result=extraction_result,
                     model_name=self.model,
-                    prompt_version=PROMPT_VERSION,
+                    prompt_version=self.prompt_version,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     duration_ms=duration_ms,
@@ -181,7 +204,9 @@ class LLMParser:
 
     # ── API call ──────────────────────────────────────────────────────────────
 
-    async def _call_api(self, messages: list[dict]) -> tuple[str, int, int]:
+    async def _call_api(
+        self, messages: list[dict], system_prompt: str, max_output_tokens: int
+    ) -> tuple[str, int, int]:
         """
         Make one Anthropic API call. Returns (response_text, input_tokens, output_tokens).
         Raises _RetryableError or _FatalError on failure.
@@ -191,8 +216,8 @@ class LLMParser:
         try:
             response = await client.messages.create(
                 model=self.model,
-                max_tokens=MAX_OUTPUT_TOKENS,
-                system=SYSTEM_PROMPT,
+                max_tokens=max_output_tokens,
+                system=system_prompt,
                 messages=messages,
             )
         except Exception as exc:
@@ -270,7 +295,7 @@ class LLMParser:
                 errors=[error],
             ),
             model_name=self.model,
-            prompt_version=PROMPT_VERSION,
+            prompt_version=self.prompt_version,
             duration_ms=duration_ms,
             attempts=attempts,
         )

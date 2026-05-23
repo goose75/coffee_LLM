@@ -16,7 +16,7 @@ from app.services.taste.taxonomy import TAXONOMY_BY_SLUG
 
 log = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-opus-4-1"
 MAX_TOKENS = 2048
 
 

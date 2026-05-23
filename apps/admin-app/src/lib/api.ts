@@ -48,6 +48,7 @@ export const getSource = (id: string) => apiFetch<StoreDetail>(`/sources/${id}`)
 export const rescanSource = (id: string) => apiFetch<RescanResult>(`/sources/${id}/rescan`, { method: "POST" });
 export const importSeed = () => apiFetch<ImportReport>("/sources/import/seed", { method: "POST" });
 export const triggerIngest = (id: string) => apiFetch<Record<string, unknown>>(`/sources/${id}/ingest`, { method: "POST" });
+export const triggerReingestionAll = () => apiFetch<{ status: string; message: string; started_count?: number }>("/sources/reingest-all", { method: "POST" });
 
 // Ingestion runs
 export interface IngestionRun { id: string; run_type: string; store_id: string | null; started_at: string; completed_at: string | null; status: string; records_seen: number; records_created: number; records_updated: number; records_unchanged: number; pages_fetched: number; pages_failed: number; warning_count: number; error_count: number; duration_seconds: number | null; warnings: Array<{ message: string; url?: string; detail?: string }>; errors: Array<{ message: string; url?: string; detail?: string }>; }

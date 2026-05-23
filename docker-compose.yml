@@ -83,7 +83,7 @@ services:
       # Get a key at: https://console.anthropic.com
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set in .env}
       # ─────────────────────────────────────────────────────────────────────────
-      LLM_MODEL: claude-sonnet-4-20250514
+      LLM_MODEL: claude-opus-4-1
       EMBEDDING_DIMENSIONS: "1536"
       CONFIDENCE_AUTO_ACCEPT: "0.78"
       CONFIDENCE_REVIEW_QUEUE: "0.55"

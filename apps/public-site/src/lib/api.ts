@@ -3,7 +3,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
     ...init,
-    next: { revalidate: 300 }, // 5-min cache
+    next: { revalidate: 0 }, // no cache - real-time data
   } as RequestInit);
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
   return res.json() as Promise<T>;
