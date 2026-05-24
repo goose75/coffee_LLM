@@ -5,17 +5,18 @@ Sources, ingestion runs, triggering ingestion, extractions, review, mappings, be
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.enums import MappingType
+from app.models.enums import MappingType, Process, RoastLevel
 from app.models.ingestion_run import IngestionRun
 from app.models.resolution import NormalisationMapping
 from app.models.store import Store
@@ -45,6 +46,7 @@ from app.services.error_recovery import ErrorRecoveryService
 from app.api.v1 import admin_feedback
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +179,35 @@ async def update_source(
     await db.commit()
     await db.refresh(store)
     return StoreListItem.model_validate(store)
+
+
+@router.delete("/sources/{source_id}", status_code=200)
+async def delete_source(source_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    """Permanently delete a source and all its related data (pages, runs, extractions)."""
+    try:
+        store_uuid = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID")
+
+    store = (await db.execute(select(Store).where(Store.id == store_uuid))).scalar_one_or_none()
+    if store is None:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    # Delete in order of dependencies
+    from app.models.source_page import SourcePage
+    from app.models.ingestion_run import IngestionRun
+
+    # Delete all ingestion runs for this store
+    await db.execute(delete(IngestionRun).where(IngestionRun.store_id == store_uuid))
+
+    # Delete all source pages for this store
+    await db.execute(delete(SourcePage).where(SourcePage.store_id == store_uuid))
+
+    # Delete the store itself
+    await db.delete(store)
+
+    await db.commit()
+    return {"deleted": True, "id": str(store_uuid)}
 
 
 @router.post("/sources/{source_id}/rescan", response_model=StoreDetectionSummary)
@@ -403,8 +434,8 @@ async def list_ingestion_runs(
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedIngestionRuns:
-    """List ingestion run history, newest first."""
-    stmt = select(IngestionRun)
+    """List ingestion run history with store names, newest first."""
+    stmt = select(IngestionRun).options(selectinload(IngestionRun.store))
     if store_id:
         try:
             stmt = stmt.where(IngestionRun.store_id == uuid.UUID(store_id))
@@ -421,8 +452,15 @@ async def list_ingestion_runs(
     stmt = stmt.order_by(desc(IngestionRun.started_at)).offset((page - 1) * page_size).limit(page_size)
     rows = (await db.execute(stmt)).scalars().all()
 
+    # Build items with store names
+    items = []
+    for r in rows:
+        item = IngestionRunItem.model_validate(r)
+        item.store_name = r.store.name if r.store else None
+        items.append(item)
+
     return PaginatedIngestionRuns(
-        data=[IngestionRunItem.model_validate(r) for r in rows],
+        data=items,
         total=total, page=page, page_size=page_size,
         has_next=(page * page_size) < total,
     )
@@ -434,10 +472,12 @@ async def get_ingestion_run(run_id: str, db: AsyncSession = Depends(get_db)) -> 
         run_uuid = uuid.UUID(run_id)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid UUID")
-    run = (await db.execute(select(IngestionRun).where(IngestionRun.id == run_uuid))).scalar_one_or_none()
+    run = (await db.execute(select(IngestionRun).options(selectinload(IngestionRun.store)).where(IngestionRun.id == run_uuid))).scalar_one_or_none()
     if run is None:
         raise HTTPException(status_code=404, detail="Ingestion run not found")
-    return IngestionRunItem.model_validate(run)
+    item = IngestionRunItem.model_validate(run)
+    item.store_name = run.store.name if run.store else None
+    return item
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -645,6 +685,16 @@ async def review_analytics(db: AsyncSession = Depends(get_db)) -> ReviewAnalytic
         canonical_bean_count=canonical_bean_count,
         avg_canonical_completeness=avg_completeness,
     )
+
+
+@router.get("/review/unmatched-count")
+async def get_unmatched_count(db: AsyncSession = Depends(get_db)) -> dict:
+    """Get count of bean listings queued for matching (unmatched)."""
+    stmt = select(func.count()).select_from(
+        select(BeanListing).where(BeanListing.canonical_bean_id == None).subquery()  # noqa: E712
+    )
+    count = (await db.execute(stmt)).scalar_one()
+    return {"count": count}
 
 
 @router.get("/review/matches", response_model=PaginatedMatches)
@@ -864,13 +914,33 @@ async def create_canonicals_from_unmatched(
 
     for listing in unmatched:
         try:
-            # Create new canonical from listing
+            # Normalize enum values: convert to lowercase and validate
+            process = None
+            if listing.process_label_raw and listing.process_label_raw.strip():
+                process_str = listing.process_label_raw.strip().lower()
+                # Try to match against valid enum values
+                try:
+                    process = Process(process_str)
+                except ValueError:
+                    # If not a valid enum value, set to None
+                    process = None
+
+            roast_level = None
+            if listing.roast_label_raw and listing.roast_label_raw.strip():
+                roast_str = listing.roast_label_raw.strip().lower()
+                # Try to match against valid enum values
+                try:
+                    roast_level = RoastLevel(roast_str)
+                except ValueError:
+                    # If not a valid enum value, set to None
+                    roast_level = None
+
             canonical = CanonicalBean(
                 canonical_name=listing.raw_title or "Unknown",
-                origin_country=listing.origin_label_raw,
-                roast_level=listing.roast_label_raw,
-                varietal=[listing.varietal_label_raw] if listing.varietal_label_raw else [],
-                process=listing.process_label_raw,
+                origin_country=listing.origin_label_raw if listing.origin_label_raw and listing.origin_label_raw.strip() else None,
+                roast_level=roast_level,
+                varietal=[listing.varietal_label_raw] if listing.varietal_label_raw and listing.varietal_label_raw.strip() else [],
+                process=process,
                 flavour_notes=[],
                 decaf_flag=False,
                 espresso_suitable_flag=False,
@@ -1593,6 +1663,374 @@ async def update_canonical_bean(
     await db.commit()
     await db.refresh(bean)
     return CanonicalBeanItem.model_validate(bean)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Automatic matching (prevent stalling)
+
+@router.post("/matching/auto-match-new-listings", response_model=dict)
+async def auto_match_new_listings(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(1000, ge=1, description="Max listings to process"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Automatically match any new unmatched listings.
+
+    This endpoint is designed to be called periodically by a scheduler
+    to prevent the matching pipeline from stalling.
+
+    Process:
+    1. Find all unmatched listings (limit=1000 per run)
+    2. Run matching pipeline on them
+    3. Create new canonicals for low-confidence matches
+    4. Return summary of actions taken
+    """
+    # Count unmatched
+    unmatched_stmt = (
+        select(func.count())
+        .select_from(BeanListing)
+        .where(BeanListing.canonical_bean_id == None)  # noqa: E712
+    )
+    unmatched_count = (await db.execute(unmatched_stmt)).scalar_one() or 0
+
+    if unmatched_count == 0:
+        return {
+            "status": "ok",
+            "message": "No unmatched listings",
+            "total_unmatched": 0,
+            "processed": 0,
+            "background_task_queued": False,
+        }
+
+    async def run_auto_match():
+        """Background task to match and canonicalize unmatched listings."""
+        try:
+            # Step 1: Try matching
+            from app.services.matching import CanonicalMatchingService
+            service = CanonicalMatchingService(db)
+
+            stmt = (
+                select(BeanListing)
+                .where(BeanListing.canonical_bean_id == None)  # noqa: E712
+                .order_by(BeanListing.first_seen_at.desc())
+                .limit(limit)
+            )
+            unmatched_listings = (await db.execute(stmt)).scalars().all()
+
+            if not unmatched_listings:
+                log.info("No unmatched listings found for auto-match")
+                return
+
+            matched_count = 0
+            auto_accepted = 0
+            pending = 0
+
+            # Try to match each listing
+            for listing in unmatched_listings:
+                outcome = await service.match_single_listing(listing)
+                if outcome == "auto_accepted":
+                    auto_accepted += 1
+                    matched_count += 1
+                elif outcome == "review_queued":
+                    pending += 1
+                    matched_count += 1
+
+            await db.commit()
+
+            # Step 2: Create new canonicals from remaining unmatched
+            stmt = (
+                select(BeanListing)
+                .where(BeanListing.canonical_bean_id == None)  # noqa: E712
+                .order_by(BeanListing.first_seen_at.desc())
+            )
+            still_unmatched = (await db.execute(stmt)).scalars().all()
+
+            created_count = 0
+            for listing in still_unmatched:
+                try:
+                    process = None
+                    if listing.process_label_raw and listing.process_label_raw.strip():
+                        process_str = listing.process_label_raw.strip().lower()
+                        try:
+                            process = Process(process_str)
+                        except ValueError:
+                            process = None
+
+                    roast_level = None
+                    if listing.roast_label_raw and listing.roast_label_raw.strip():
+                        roast_str = listing.roast_label_raw.strip().lower()
+                        try:
+                            roast_level = RoastLevel(roast_str)
+                        except ValueError:
+                            roast_level = None
+
+                    canonical = CanonicalBean(
+                        canonical_name=listing.raw_title or "Unknown",
+                        origin_country=listing.origin_label_raw if listing.origin_label_raw and listing.origin_label_raw.strip() else None,
+                        roast_level=roast_level,
+                        varietal=[listing.varietal_label_raw] if listing.varietal_label_raw and listing.varietal_label_raw.strip() else [],
+                        process=process,
+                        flavour_notes=[],
+                        decaf_flag=False,
+                        espresso_suitable_flag=False,
+                        filter_suitable_flag=False,
+                        data_completeness_score=0.3,
+                    )
+                    db.add(canonical)
+                    await db.flush()
+                    listing.canonical_bean_id = canonical.id
+                    created_count += 1
+                except Exception as exc:
+                    log.error(f"Error creating canonical for listing {listing.id}: {exc}")
+                    await db.rollback()
+
+            await db.commit()
+
+            log.info(
+                f"Auto-match completed: {matched_count} matched ({auto_accepted} auto-accepted, "
+                f"{pending} pending), {created_count} new canonicals created"
+            )
+
+        except Exception as exc:
+            log.error(f"Auto-match task failed: {exc}", exc_info=True)
+            await db.rollback()
+
+    # Queue background task
+    background_tasks.add_task(run_auto_match)
+
+    return {
+        "status": "queued",
+        "message": f"Auto-matching queued for up to {limit} unmatched listings",
+        "total_unmatched": unmatched_count,
+        "processed": min(unmatched_count, limit),
+        "background_task_queued": True,
+    }
+
+
+@router.post("/beans/extract-flavours-from-descriptions", response_model=dict)
+async def extract_flavours_from_descriptions(
+    limit: int = Query(500, ge=1, le=1000, description="Max beans to process"),
+    confidence_threshold: float = Query(0.7, ge=0.5, le=0.99, description="Min confidence to accept extraction"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Extract flavour notes from product descriptions using LLM.
+
+    For each canonical bean without flavour notes:
+    1. Collect descriptions from linked listings
+    2. Use LLM to identify flavour notes
+    3. Only update if confidence >= threshold
+    4. Preserve existing (don't overwrite manual data)
+    """
+    import anthropic
+    import os
+    import json
+
+    # Get beans without flavour notes
+    stmt = (
+        select(CanonicalBean)
+        .where(
+            or_(
+                CanonicalBean.flavour_notes == [],
+                CanonicalBean.flavour_notes == None
+            )
+        )
+        .order_by(CanonicalBean.data_completeness_score.desc().nullslast())
+        .limit(limit)
+    )
+
+    beans = (await db.execute(stmt)).scalars().all()
+
+    if not beans:
+        return {
+            "status": "ok",
+            "message": "No beans without flavour notes",
+            "processed": 0,
+            "updated": 0,
+        }
+
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    updated_count = 0
+    skipped_count = 0
+
+    for bean in beans:
+        try:
+            # Get all descriptions from linked listings
+            listings_stmt = (
+                select(BeanListing.raw_description)
+                .where(BeanListing.canonical_bean_id == bean.id)
+                .where(BeanListing.raw_description != None)
+            )
+            result = await db.execute(listings_stmt)
+            descriptions = [row[0] for row in result]
+
+            if not descriptions:
+                skipped_count += 1
+                continue
+
+            # Combine descriptions (take first few to avoid token limits)
+            combined_text = " | ".join(descriptions[:3])
+
+            # Call LLM to extract flavours
+            prompt = f"""Extract coffee flavour notes from this product description.
+
+Description: {combined_text}
+
+Return ONLY a JSON object with:
+{{"flavours": ["note1", "note2", "note3"], "confidence": 0.85}}
+
+Guidelines:
+- Extract specific sensory descriptors (fruity, floral, nutty, chocolate, etc)
+- Be conservative - only extract if clearly mentioned
+- Max 12 notes
+- Confidence 0.5-1.0 based on how clear the description is
+- Return empty array if no flavours found
+
+JSON only, no other text:"""
+
+            message = client.messages.create(
+                model="claude-opus-4-1",
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            response_text = message.content[0].text.strip()
+
+            # Parse JSON
+            data = json.loads(response_text)
+            confidence = data.get("confidence", 0)
+            flavours = data.get("flavours", [])
+
+            # Only update if confidence is high and flavours exist
+            if confidence >= confidence_threshold and flavours:
+                bean.flavour_notes = flavours
+                updated_count += 1
+
+                if updated_count % 50 == 0:
+                    log.info(f"Extracted flavours for {updated_count} beans")
+            else:
+                skipped_count += 1
+
+        except Exception as exc:
+            log.warning(f"Error extracting flavours for {bean.id}: {exc}")
+            skipped_count += 1
+
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "message": f"Extracted flavours for {updated_count} beans",
+        "processed": len(beans),
+        "updated": updated_count,
+        "skipped_low_confidence": skipped_count,
+        "confidence_threshold": confidence_threshold,
+        "note": "Only updated beans with high-confidence extractions. Flavour atlas should expand accordingly.",
+    }
+
+
+@router.post("/beans/merge-duplicates", response_model=dict)
+async def merge_duplicate_canonical_beans(
+    limit: int = Query(None, ge=1, description="Max groups to merge (None = all)"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Merge duplicate canonical beans with same name.
+
+    For each group of canonicals with the same canonical_name:
+    1. Keep the one with highest data_completeness_score
+    2. Relink all other beans' listings to the kept bean
+    3. Delete duplicate beans
+
+    Only uses facts in the database - does NOT create, invent, or assume data.
+    """
+    # Find all duplicate groups
+    stmt = select(CanonicalBean.canonical_name).distinct().where(
+        CanonicalBean.canonical_name.in_(
+            select(CanonicalBean.canonical_name)
+            .group_by(CanonicalBean.canonical_name)
+            .having(func.count() > 1)
+        )
+    )
+
+    if limit:
+        stmt = stmt.limit(limit)
+
+    result = await db.execute(stmt)
+    dup_names = [row[0] for row in result]
+
+    if not dup_names:
+        return {
+            "status": "ok",
+            "message": "No duplicate canonical beans found",
+            "groups_merged": 0,
+            "beans_deleted": 0,
+            "listings_relinked": 0,
+        }
+
+    merged = 0
+    deleted = 0
+    relinked = 0
+
+    for dup_name in dup_names:
+        try:
+            # Get all beans with this name, sorted by completeness (keep best)
+            beans_stmt = (
+                select(CanonicalBean)
+                .where(CanonicalBean.canonical_name == dup_name)
+                .order_by(
+                    CanonicalBean.data_completeness_score.desc().nullslast(),
+                    CanonicalBean.created_at.asc()
+                )
+            )
+            result = await db.execute(beans_stmt)
+            beans = result.scalars().all()
+
+            if len(beans) > 1:
+                master_bean = beans[0]  # Keep best (highest completeness)
+
+                # Relink all other beans' listings to master
+                for duplicate_bean in beans[1:]:
+                    # Find all listings pointing to this duplicate
+                    listings_stmt = (
+                        select(BeanListing)
+                        .where(BeanListing.canonical_bean_id == duplicate_bean.id)
+                    )
+                    result = await db.execute(listings_stmt)
+                    listings = result.scalars().all()
+
+                    for listing in listings:
+                        listing.canonical_bean_id = master_bean.id
+                        relinked += 1
+
+                    # Delete canonical matches that reference this bean
+                    from app.models.resolution import CanonicalMatch
+                    del_matches_stmt = delete(CanonicalMatch).where(
+                        or_(
+                            CanonicalMatch.proposed_canonical_bean_id == duplicate_bean.id,
+                        )
+                    )
+                    await db.execute(del_matches_stmt)
+
+                    # Delete the duplicate bean
+                    await db.delete(duplicate_bean)
+                    deleted += 1
+
+                merged += 1
+
+        except Exception as exc:
+            log.error(f"Error merging '{dup_name}': {exc}")
+
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "message": f"Merged {merged} duplicate canonical groups",
+        "groups_merged": merged,
+        "beans_deleted": deleted,
+        "listings_relinked": relinked,
+        "note": "All listings preserved by relinking to master canonical beans. No data invented.",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

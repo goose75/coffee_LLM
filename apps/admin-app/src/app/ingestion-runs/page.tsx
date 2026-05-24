@@ -61,19 +61,22 @@ export default function IngestionRunsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-800 bg-neutral-900/60">
-              {["Status","Type","Started","Duration","Records","Issues",""].map((h,i) => (
+              {["Status","Roaster","Type","Started","Duration","Records","Issues",""].map((h,i) => (
                 <th key={i} className="px-4 py-2.5 text-left text-[11px] font-medium text-neutral-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {loading ? <SkeletonRows cols={7} /> : runs.length === 0 ? (
-              <tr><td colSpan={7}><EmptyState message="No ingestion runs yet." action={<a href="/sources" style={{ color: "var(--accent)", fontSize: "0.75rem" }}>Go to Sources to trigger your first crawl →</a>} /></td></tr>
+            {loading ? <SkeletonRows cols={8} /> : runs.length === 0 ? (
+              <tr><td colSpan={8}><EmptyState message="No ingestion runs yet." action={<a href="/sources" style={{ color: "var(--accent)", fontSize: "0.75rem" }}>Go to Sources to trigger your first crawl →</a>} /></td></tr>
             ) : runs.map(run => (
               <>
                 <tr key={run.id} onClick={() => setExpanded(expanded === run.id ? null : run.id)}
                   className={`border-b border-neutral-800/40 hover:bg-neutral-900/30 cursor-pointer transition-colors ${expanded === run.id ? "bg-neutral-900/40" : ""}`}>
                   <td className="px-4 py-2.5"><Badge value={run.status} dot /></td>
+                  <td className="px-4 py-2.5 text-xs text-neutral-300">
+                    <div className="max-w-xs truncate">{run.store_name || <span className="text-neutral-700">—</span>}</div>
+                  </td>
                   <td className="px-4 py-2.5 text-xs text-neutral-500 font-mono">{run.run_type}</td>
                   <td className="px-4 py-2.5 text-xs text-neutral-500">
                     {new Date(run.started_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}

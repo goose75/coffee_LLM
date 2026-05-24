@@ -5,8 +5,8 @@ playwright==1.42.0
 # HTML parsing
 beautifulsoup4==4.12.3
 selectolax==0.3.17
-extruct==0.16.0
-lxml==5.2.2
+extruct>=0.18.0
+lxml<5  # extruct 0.18.0 needs older lxml for _ElementStringResult compatibility
 
 # Hashing / utilities
 python-dotenv==1.0.1

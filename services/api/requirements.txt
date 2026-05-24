@@ -37,17 +37,18 @@ ruff==0.3.0
 mypy==1.8.0
 
 # Extraction
-# extruct 0.16 imports `_ElementStringResult` from lxml.etree which was
-# removed in lxml 5.x — use 0.18+ which is compatible with lxml 5.
+# extruct 0.18+ requires lxml<5 for _ElementStringResult compatibility
 extruct>=0.18.0
-lxml==5.2.2
+lxml<5
 beautifulsoup4==4.12.3
 selectolax==0.3.17
-html-sanitizer==2.4.4
 w3lib==2.1.2
 
 # LLM
 anthropic==0.40.0
+
+# Browser Automation
+playwright==1.45.0
 
 # Matching
 rapidfuzz==3.6.1

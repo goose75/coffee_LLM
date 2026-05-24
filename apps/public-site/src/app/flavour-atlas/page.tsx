@@ -129,8 +129,18 @@ export default function FlavourAtlasPage() {
       else next.add(slug);
       return next;
     });
-    // If clicking a family node, also bloom/unbloom it
-    setActiveFamilySlug((prev) => prev === familySlug ? null : familySlug);
+  }, []);
+
+  const toggleFamily = useCallback((slug: string) => {
+    // Toggle bloom state when clicking a family node
+    setActiveFamilySlug((prev) => prev === slug ? null : slug);
+    // Clicking a family node also adds/removes it from selection
+    setSelectedSlugs((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
   }, []);
 
   const clearAll = useCallback(() => {
@@ -213,14 +223,15 @@ export default function FlavourAtlasPage() {
           atlas={atlas}
           activeFamilySlug={activeFamilySlug}
           selectedSlugs={selectedSlugs}
-          onToggle={toggleSlug}
+          onToggleSlug={toggleSlug}
+          onToggleFamily={toggleFamily}
           matchCount={selectedCount}
         />
       ) : atlas && viewMode === "list" ? (
         <ListView
           atlas={atlas}
           selectedSlugs={selectedSlugs}
-          onToggle={toggleSlug}
+          onToggleSlug={toggleSlug}
         />
       ) : null}
 
@@ -302,13 +313,15 @@ function OrbitalGraph({
   atlas,
   activeFamilySlug,
   selectedSlugs,
-  onToggle,
+  onToggleSlug,
+  onToggleFamily,
   matchCount,
 }: {
   atlas: AtlasResponse;
   activeFamilySlug: string | null;
   selectedSlugs: Set<string>;
-  onToggle: (slug: string, familySlug: string) => void;
+  onToggleSlug: (slug: string, familySlug: string) => void;
+  onToggleFamily: (slug: string) => void;
   matchCount: number;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -409,7 +422,7 @@ function OrbitalGraph({
             <g
               key={child.slug}
               style={{ cursor: "pointer", transition: "all 0.25s ease" }}
-              onClick={() => onToggle(child.slug, activeFamily.slug)}
+              onClick={() => onToggleSlug(child.slug, activeFamily.slug)}
               role="button"
               aria-label={`${child.label}, ${child.coffee_count} coffees`}
               aria-pressed={isSelected}
@@ -460,7 +473,7 @@ function OrbitalGraph({
             <g
               key={fam.slug}
               style={{ cursor: "pointer" }}
-              onClick={() => onToggle(fam.slug, fam.slug)}
+              onClick={() => onToggleFamily(fam.slug)}
               role="button"
               aria-label={`${fam.label} family, ${fam.coffee_count} coffees`}
               aria-pressed={isActive}
@@ -536,11 +549,11 @@ function OrbitalGraph({
 function ListView({
   atlas,
   selectedSlugs,
-  onToggle,
+  onToggleSlug,
 }: {
   atlas: AtlasResponse;
   selectedSlugs: Set<string>;
-  onToggle: (slug: string, familySlug: string) => void;
+  onToggleSlug: (slug: string, familySlug: string) => void;
 }) {
   return (
     <div className="list-view">
@@ -549,7 +562,7 @@ function ListView({
           <button
             className={`list-family-btn ${selectedSlugs.has(fam.slug) ? "selected" : ""}`}
             style={{ "--fam-colour": fam.colour } as React.CSSProperties}
-            onClick={() => onToggle(fam.slug, fam.slug)}
+            onClick={() => onToggleSlug(fam.slug, fam.slug)}
           >
             <span className="list-dot" />
             <span>{fam.label}</span>
@@ -561,7 +574,7 @@ function ListView({
                 <button
                   className={`list-child-btn depth-1 ${selectedSlugs.has(cat.slug) ? "selected" : ""}`}
                   style={{ "--fam-colour": fam.colour } as React.CSSProperties}
-                  onClick={() => onToggle(cat.slug, fam.slug)}
+                  onClick={() => onToggleSlug(cat.slug, fam.slug)}
                 >
                   {cat.label}
                   <span className="list-count">{cat.coffee_count}</span>
@@ -571,7 +584,7 @@ function ListView({
                     key={tag.slug}
                     className={`list-child-btn depth-2 ${selectedSlugs.has(tag.slug) ? "selected" : ""}`}
                     style={{ "--fam-colour": fam.colour } as React.CSSProperties}
-                    onClick={() => onToggle(tag.slug, fam.slug)}
+                    onClick={() => onToggleSlug(tag.slug, fam.slug)}
                   >
                     {tag.label}
                     <span className="list-count">{tag.coffee_count}</span>

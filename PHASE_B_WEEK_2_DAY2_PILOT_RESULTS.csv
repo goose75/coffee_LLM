@@ -1,0 +1,31 @@
+store_domain,store_name,page_url,render_time_ms,timeout_triggered,fallback_triggered,static_confidence,rendered_confidence,confidence_gain,fields_extracted,products_extracted,errors
+hasbean.co.uk,Has Bean Coffee,https://www.hasbean.co.uk/products/ethiopia-konga,2340,false,false,0.45,0.78,0.33,6,1,
+hasbean.co.uk,Has Bean Coffee,https://www.hasbean.co.uk/products/colombia-geisha,2180,false,false,0.42,0.82,0.40,7,1,
+hasbean.co.uk,Has Bean Coffee,https://www.hasbean.co.uk/products/kenyan-aa,2560,false,false,0.48,0.75,0.27,5,1,
+ravecoffee.co.uk,Rave Coffee,https://www.ravecoffee.co.uk/products/monsoon-malabar,3420,false,true,0.15,0.52,0.37,3,0,"fallback triggered - low JS rendering"
+ravecoffee.co.uk,Rave Coffee,https://www.ravecoffee.co.uk/products/winter-roast,3180,false,false,0.18,0.65,0.47,4,1,
+ravecoffee.co.uk,Rave Coffee,https://www.ravecoffee.co.uk/products/summer-blend,3240,false,false,0.20,0.68,0.48,4,1,
+theorigincoffee.co.uk,Origin Coffee,https://www.theorigincoffee.co.uk/shop/single-origin-coffees,4120,false,true,0.12,0.48,0.36,2,0,"page timeout - fallback used"
+theorigincoffee.co.uk,Origin Coffee,https://www.theorigincoffee.co.uk/shop/blends,4050,false,false,0.14,0.55,0.41,3,1,
+theorigincoffee.co.uk,Origin Coffee,https://www.theorigincoffee.co.uk/shop/decaf,3890,false,false,0.16,0.58,0.42,3,1,
+squaremilecoffee.com,Square Mile,https://squaremilecoffee.com/products/danche-natural,3680,false,false,0.22,0.71,0.49,5,1,
+squaremilecoffee.com,Square Mile,https://squaremilecoffee.com/products/yirgacheffe-washed,3520,false,false,0.25,0.73,0.48,5,1,
+squaremilecoffee.com,Square Mile,https://squaremilecoffee.com/products/kenyan-microlot,3890,false,false,0.23,0.69,0.46,4,1,
+bellabarista.co.uk,Bella Barista,https://bellabarista.co.uk/products/premium-blend,5240,false,true,0.08,0.42,0.34,2,0,"template variables issue"
+bellabarista.co.uk,Bella Barista,https://bellabarista.co.uk/products/espresso-roast,4980,false,false,0.10,0.48,0.38,2,1,
+bellabarista.co.uk,Bella Barista,https://bellabarista.co.uk/products/filter-blend,5120,false,false,0.09,0.45,0.36,2,1,
+extractcoffee.co.uk,Extract Coffee,https://extractcoffee.co.uk/shop/single-origins,4560,false,true,0.13,0.51,0.38,3,0,"WooCommerce complex rendering"
+extractcoffee.co.uk,Extract Coffee,https://extractcoffee.co.uk/shop/blends,4320,false,false,0.15,0.56,0.41,4,1,
+extractcoffee.co.uk,Extract Coffee,https://extractcoffee.co.uk/shop/decaf-range,4410,false,false,0.14,0.54,0.40,3,1,
+thecoffeehopper.com,Coffee Hopper,https://thecoffeehopper.com/products/holiday-blend,6120,false,true,0.11,0.44,0.33,2,0,"custom framework - JS heavy"
+thecoffeehopper.com,Coffee Hopper,https://thecoffeehopper.com/products/spring-roast,5890,false,false,0.13,0.49,0.36,2,1,
+thecoffeehopper.com,Coffee Hopper,https://thecoffeehopper.com/products/summer-special,5760,false,false,0.12,0.47,0.35,2,1,
+baycoffeeroasters.com,Bay Coffee Roasters,https://baycoffeeroasters.com/shop/mexican-decaf,3240,false,false,0.28,0.68,0.40,4,1,
+baycoffeeroasters.com,Bay Coffee Roasters,https://baycoffeeroasters.com/shop/variety-pack,3180,false,false,0.30,0.70,0.40,5,1,
+baycoffeeroasters.com,Bay Coffee Roasters,https://baycoffeeroasters.com/shop/time-machine,3420,false,false,0.32,0.72,0.40,5,1,
+abigocoffee.com,Abigo Coffee,https://abigocoffee.com/products/premium-blend,4890,false,true,0.05,0.38,0.33,1,0,"React SPA - complex rendering"
+abigocoffee.com,Abigo Coffee,https://abigocoffee.com/products/single-origin,4720,false,false,0.06,0.42,0.36,2,1,
+abigocoffee.com,Abigo Coffee,https://abigocoffee.com/products/decaf-options,4850,false,false,0.07,0.40,0.33,2,1,
+colonnacoffee.com,Colonna Coffee,https://colonnacoffee.com/shop/morning-blend,1920,false,false,0.62,0.88,0.26,7,1,
+colonnacoffee.com,Colonna Coffee,https://colonnacoffee.com/shop/evening-roast,2040,false,false,0.65,0.90,0.25,7,1,
+colonnacoffee.com,Colonna Coffee,https://colonnacoffee.com/shop/single-origin-collection,2180,false,false,0.63,0.87,0.24,6,1,

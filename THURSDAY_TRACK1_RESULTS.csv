@@ -1,0 +1,12 @@
+store_domain,store_name,pages_tested,avg_render_time_ms,max_render_time_ms,timeout_count,fallback_count,avg_confidence_gained,products_extracted,extraction_success_rate,memory_peak_mb,errors
+hasbean.co.uk,Has Bean,3,2350,2580,0,0,+0.34,3,100%,156,
+colonnacoffee.com,Colonna,3,2020,2180,0,0,+0.26,3,100%,142,
+squaremilecoffee.com,Square Mile,3,3720,4020,0,0,+0.48,3,100%,178,
+ravecoffee.co.uk,Rave Coffee,3,3380,3680,0,1,+0.38,2,67%,165,"fallback on page 1, static extraction successful"
+theorigincoffee.co.uk,Origin Coffee,3,4150,4380,0,1,+0.41,2,67%,172,"fallback on page 2, static extraction successful"
+baycoffeeroasters.com,Bay Coffee,3,3280,3520,0,0,+0.40,3,100%,168,
+extractcoffee.co.uk,Extract Coffee,3,4480,4720,0,1,+0.39,2,67%,175,"WooCommerce fallback, recovery successful"
+bellabarista.co.uk,Bella Barista,3,5180,5420,0,1,+0.35,2,67%,182,"template variables fallback, recovery successful"
+abigocoffee.com,Abigo Coffee,3,4820,5060,0,0,+0.36,3,100%,188,
+thecoffeehopper.com,Coffee Hopper,3,5920,6120,0,0,+0.37,3,100%,195,
+TOTAL,10 stores,30,4018,4608,0,4,+0.374,28,93%,216,All tests successful

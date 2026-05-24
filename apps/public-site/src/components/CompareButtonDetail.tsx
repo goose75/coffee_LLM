@@ -30,7 +30,7 @@ export default function CompareButtonDetail({
           ? "1.5px solid var(--accent)"
           : "1.5px solid var(--border)",
         background: inCompare ? "var(--accent-dim)" : "transparent",
-        color: inCompare ? "var(--accent)" : "var(--text-faint)",
+        color: inCompare ? "var(--accent)" : "var(--text)",
         fontSize: 11,
         fontFamily: "var(--font-body)",
         fontWeight: 500,

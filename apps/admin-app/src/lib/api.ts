@@ -46,12 +46,13 @@ export interface SourceFilters { active_only?: boolean; parser_strategy?: string
 export const getSources = (f: SourceFilters = {}) => { const p = new URLSearchParams(); Object.entries(f).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); }); return apiFetch<PaginatedStores>(`/sources${p.toString() ? `?${p}` : ""}`); };
 export const getSource = (id: string) => apiFetch<StoreDetail>(`/sources/${id}`);
 export const rescanSource = (id: string) => apiFetch<RescanResult>(`/sources/${id}/rescan`, { method: "POST" });
+export const deleteSource = (id: string) => apiFetch<void>(`/sources/${id}`, { method: "DELETE" });
 export const importSeed = () => apiFetch<ImportReport>("/sources/import/seed", { method: "POST" });
 export const triggerIngest = (id: string) => apiFetch<Record<string, unknown>>(`/sources/${id}/ingest`, { method: "POST" });
 export const triggerReingestionAll = () => apiFetch<{ status: string; message: string; started_count?: number }>("/sources/reingest-all", { method: "POST" });
 
 // Ingestion runs
-export interface IngestionRun { id: string; run_type: string; store_id: string | null; started_at: string; completed_at: string | null; status: string; records_seen: number; records_created: number; records_updated: number; records_unchanged: number; pages_fetched: number; pages_failed: number; warning_count: number; error_count: number; duration_seconds: number | null; warnings: Array<{ message: string; url?: string; detail?: string }>; errors: Array<{ message: string; url?: string; detail?: string }>; }
+export interface IngestionRun { id: string; run_type: string; store_id: string | null; store_name: string | null; started_at: string; completed_at: string | null; status: string; records_seen: number; records_created: number; records_updated: number; records_unchanged: number; pages_fetched: number; pages_failed: number; warning_count: number; error_count: number; duration_seconds: number | null; warnings: Array<{ message: string; url?: string; detail?: string }>; errors: Array<{ message: string; url?: string; detail?: string }>; }
 export interface IngestionFilters { store_id?: string; status?: string; run_type?: string; page?: number; page_size?: number; }
 export const getIngestionRuns = (f: IngestionFilters = {}) => { const p = new URLSearchParams(); Object.entries(f).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); }); return apiFetch<Paginated<IngestionRun>>(`/ingestion-runs${p.toString() ? `?${p}` : ""}`); };
 export const getIngestionRun = (id: string) => apiFetch<IngestionRun>(`/ingestion-runs/${id}`);
@@ -106,6 +107,7 @@ export interface ReviewAnalytics {
   avg_canonical_completeness: number;
 }
 export const getReviewAnalytics = () => apiFetch<ReviewAnalytics>("/review/analytics");
+export const getUnmatchedCount = () => apiFetch<{ count: number }>("/review/unmatched-count");
 
 // Data quality
 export interface FieldDisagreement { field: string; canonical_value: string | null; listing_majority_value: string | null; listings_disagreeing: number; total_listings: number; }

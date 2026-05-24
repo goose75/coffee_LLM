@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getSources, getIngestionRuns, getMatches, type Store, type IngestionRun, type CanonicalMatch } from "@/lib/api";
+import { getSources, getIngestionRuns, getMatches, getUnmatchedCount, type Store, type IngestionRun, type CanonicalMatch } from "@/lib/api";
 import { StatCard, Badge, ConfidenceBar, DataTable, SkeletonRows } from "@/components/ui";
 
 function fmtAgo(iso: string | null): string {
@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const [totalSources, setTotalSources] = useState(0);
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [pendingMatches, setPendingMatches] = useState(0);
+  const [unmatchedCount, setUnmatchedCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,11 +26,13 @@ export default function DashboardPage() {
       getSources({ active_only: false, page_size: 200 }),
       getIngestionRuns({ page_size: 10 }),
       getMatches({ status: "pending", page_size: 1 }),
-    ]).then(([s, r, m]) => {
+      getUnmatchedCount(),
+    ]).then(([s, r, m, u]) => {
       setSources(s.data);
       setTotalSources(s.total);
       setRuns(r.data);
       setPendingMatches(m.pending_count);
+      setUnmatchedCount(u.count);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -57,7 +60,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-6 gap-3 mb-6">
         <StatCard label="Sources" value={loading ? "…" : total} sub={sampleSize < total ? `${sampleSize} analyzed` : "all tracked"} />
         <StatCard
           label="Source health"
@@ -67,6 +70,7 @@ export default function DashboardPage() {
         />
         <StatCard label="Inactive" value={loading ? "…" : inactive} sub="flagged off" color={inactive > 0 ? "text-neutral-400" : "text-neutral-600"} />
         <StatCard label="Pending matches" value={loading ? "…" : pendingMatches} sub="need review" color={pendingMatches > 0 ? "text-amber-400" : "text-neutral-200"} />
+        <StatCard label="Unmatched listings" value={loading ? "…" : unmatchedCount} sub="queued for matching" color={unmatchedCount > 0 ? "text-amber-400" : "text-neutral-200"} />
         <StatCard label="Failed runs" value={loading ? "…" : failedRuns} sub="last 10 runs" color={failedRuns > 0 ? "text-red-400" : "text-emerald-400"} />
       </div>
 

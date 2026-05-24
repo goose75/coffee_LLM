@@ -14,6 +14,7 @@ class IngestionRunItem(BaseModel):
     id: UUID
     run_type: str
     store_id: UUID | None
+    store_name: str | None = None
     started_at: datetime
     completed_at: datetime | None
     status: str

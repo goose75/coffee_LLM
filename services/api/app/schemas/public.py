@@ -6,6 +6,7 @@ only what a consumer-facing site needs, with no internal IDs or audit fields.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, computed_field, Field
 
@@ -151,8 +152,8 @@ class CanonicalBeanItem(BaseModel):
     espresso_suitable_flag: bool
     filter_suitable_flag: bool
     data_completeness_score: float
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class CanonicalBeanUpdate(BaseModel):

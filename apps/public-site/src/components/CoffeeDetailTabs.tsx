@@ -11,7 +11,7 @@ import { Per100gBars, PriceHistoryChart, GoodValueAlts } from "@/components/Pric
 // ── SVG Price Chart ─────────────────────────────────────────────────────────
 
 function PriceLineChart({ history }: { history: BeanPriceHistory }) {
-  const W = 340, H = 120, PAD = { t: 12, r: 8, b: 26, l: 40 };
+  const W = 500, H = 240, PAD = { t: 16, r: 12, b: 36, l: 56 };
   const all250 = history.variants.filter(v => v.weight_g != null && v.weight_g >= 200 && v.weight_g <= 300);
   const series = all250.length > 0 ? all250 : history.variants;
   if (series.length === 0) return null;
@@ -32,11 +32,11 @@ function PriceLineChart({ history }: { history: BeanPriceHistory }) {
         {yTicks.map(t => (
           <g key={t}>
             <line x1={PAD.l} y1={cy(t)} x2={W - PAD.r} y2={cy(t)} stroke="var(--border-light)" strokeWidth="0.5" />
-            <text x={PAD.l - 4} y={cy(t)} textAnchor="end" dominantBaseline="middle" fontSize="8" fill="var(--text-faint)">£{t.toFixed(0)}</text>
+            <text x={PAD.l - 4} y={cy(t)} textAnchor="end" dominantBaseline="middle" fontSize="11" fill="var(--text)">£{t.toFixed(0)}</text>
           </g>
         ))}
-        <text x={PAD.l} y={H - 2} fontSize="8" fill="var(--text-faint)">{fmt(minDate)}</text>
-        <text x={W - PAD.r} y={H - 2} fontSize="8" fill="var(--text-faint)" textAnchor="end">{fmt(maxDate)}</text>
+        <text x={PAD.l} y={H - 2} fontSize="11" fill="var(--text)">{fmt(minDate)}</text>
+        <text x={W - PAD.r} y={H - 2} fontSize="11" fill="var(--text)" textAnchor="end">{fmt(maxDate)}</text>
         {series.map((v, i) => {
           const pts = v.history.filter(p => p.price_gbp > 0).sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
           if (pts.length < 2) return null;
@@ -51,9 +51,9 @@ function PriceLineChart({ history }: { history: BeanPriceHistory }) {
           );
         })}
       </svg>
-      <div className="flex flex-wrap gap-3 mt-2">
+      <div className="flex flex-wrap gap-3 mt-4">
         {series.map((v, i) => (
-          <span key={v.variant_id} className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-faint)" }}>
+          <span key={v.variant_id} className="flex items-center gap-1.5 text-base" style={{ color: "var(--text)" }}>
             <span className="inline-block w-3 h-0.5 rounded-full" style={{ backgroundColor: palette[i % palette.length] }} />
             {v.store_name}{v.weight_g ? ` ${v.weight_g}g` : ""}
           </span>
@@ -69,8 +69,8 @@ function Row({ label, value }: { label: string; value: string | null | undefined
   if (!value) return null;
   return (
     <div className="flex items-start gap-4 py-3" style={{ borderBottom: "1px solid var(--border-light)" }}>
-      <span className="w-28 flex-shrink-0 text-[11px] uppercase tracking-wider pt-0.5" style={{ color: "var(--text-faint)" }}>{label}</span>
-      <span className="text-sm" style={{ color: "var(--text)" }}>{value}</span>
+      <span className="w-32 flex-shrink-0 text-sm uppercase tracking-wider pt-0.5 font-semibold" style={{ color: "var(--text-faint)" }}>{label}</span>
+      <span className="text-base" style={{ color: "var(--text)" }}>{value}</span>
     </div>
   );
 }
@@ -84,74 +84,117 @@ const FAMILY_EMOJI: Record<string, string> = {
 
 function SimilarSection({ similar }: { similar: SimilarCoffee[] }) {
   if (!similar.length) return null;
+
+  // Group coffees by shared flavor families
+  const groupedBySimilarity = similar.reduce((acc, coffee) => {
+    const key = coffee.shared_families.sort().join(',');
+    if (!acc[key]) {
+      acc[key] = { families: coffee.shared_families, coffees: [] };
+    }
+    acc[key].coffees.push(coffee);
+    return acc;
+  }, {} as Record<string, { families: string[]; coffees: SimilarCoffee[] }>);
+
   return (
-    <div className="space-y-2">
-      {similar.map(s => (
-        <Link key={s.bean_id} href={`/coffees/${s.bean_id}`}
-          className="flex items-center gap-3 p-3 rounded-2xl press-active"
-          style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium leading-snug mb-1" style={{ fontFamily: "var(--font-display)", fontSize: "0.95rem" }}>
-              {s.canonical_name}
-            </div>
-            <div className="text-xs mb-1.5" style={{ color: "var(--text-faint)" }}>
-              {[s.origin_country, s.process?.replace(/_/g, " ")].filter(Boolean).join(" · ")}
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {s.shared_families.map(f => (
-                <span key={f} className="text-[10px] px-1.5 py-0.5 rounded"
-                  style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-faint)" }}>
-                  {FAMILY_EMOJI[f] ?? ""} {f}
-                </span>
-              ))}
-            </div>
+    <div className="space-y-8">
+      {Object.entries(groupedBySimilarity).map(([familiesKey, { families, coffees }]) => (
+        <div key={familiesKey}>
+          {/* Shared flavor families header */}
+          <div className="flex flex-wrap gap-2.5 mb-5">
+            {families.map(f => (
+              <span key={f} className="text-base px-3 py-1.5 rounded"
+                style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)" }}>
+                {FAMILY_EMOJI[f] ?? ""} {f}
+              </span>
+            ))}
           </div>
-          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-            <span className="text-[11px] px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: "var(--accent-dim)", color: "var(--accent)" }}>
-              {(s.similarity_score * 100).toFixed(0)}%
-            </span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--text-faint)" }}>
-              <path d="M9 18l6-6-6-6" />
-            </svg>
+
+          {/* Coffees grouped under these families */}
+          <div className="space-y-3">
+            {coffees.map(s => (
+              <Link key={s.bean_id} href={`/coffees/${s.bean_id}`}
+                className="flex items-start gap-4 p-4 rounded-xl press-active"
+                style={{ backgroundColor: "var(--bg-warm)", border: "1px solid var(--border-light)" }}>
+                <div className="flex-1 min-w-0">
+                  <div className="text-lg mb-1" style={{ color: "var(--text)" }}>
+                    {[s.origin_country, s.process?.replace(/_/g, " ")].filter(Boolean).join(" · ")}
+                  </div>
+                  <div className="text-base font-medium" style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}>
+                    {s.canonical_name}
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <span className="text-base px-3 py-1.5 rounded-full font-semibold"
+                    style={{ backgroundColor: "var(--accent-dim)", color: "var(--accent)" }}>
+                    {(s.similarity_score * 100).toFixed(0)}%
+                  </span>
+                </div>
+              </Link>
+            ))}
           </div>
-        </Link>
+        </div>
       ))}
     </div>
   );
 }
 
-// ── FlavourChips ─────────────────────────────────────────────────────────────
+// ── Flavour Intensity Bars ──────────────────────────────────────────────────
 
-function FlavourChips({ profile }: { profile: TasteProfile }) {
+function FlavourBars({ profile }: { profile: TasteProfile }) {
   if (!profile.has_structured_tags) {
     return (
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {profile.raw_notes.map(n => (
-          <span key={n} className="text-[11px] px-2.5 py-1 rounded-full capitalize"
-            style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)", border: "1px solid var(--border-light)" }}>{n}</span>
+          <span key={n} className="text-sm px-3 py-1.5 rounded-full capitalize"
+            style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)", border: "1px solid var(--border-light)" }}>{n}</span>
         ))}
       </div>
     );
   }
+
   return (
-    <div className="space-y-3">
-      {profile.families.map(f => (
-        <div key={f.family_slug}>
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: f.colour }} />
-            <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-faint)" }}>{f.family_label}</span>
+    <div className="space-y-4">
+      {profile.families.map(f => {
+        // Calculate intensity based on weight (0-1 scale)
+        const intensity = Math.min(f.weight, 1);
+        const intensityLabel = intensity >= 0.7 ? "Strong" : intensity >= 0.4 ? "Medium" : "Subtle";
+
+        return (
+          <div key={f.family_slug}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: f.colour }} />
+                <span className="text-sm font-medium capitalize" style={{ color: "var(--text)" }}>{f.family_label}</span>
+              </div>
+              <span className="text-xs font-medium" style={{ color: "var(--text-faint)" }}>{intensityLabel}</span>
+            </div>
+
+            {/* Intensity bar */}
+            <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "var(--bg-warm)" }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${intensity * 100}%`,
+                  backgroundColor: f.colour,
+                  opacity: 0.8,
+                }}
+              />
+            </div>
+
+            {/* Flavor notes under this family */}
+            {f.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {f.tags.slice(0, 4).map(t => (
+                  <span key={t.raw_note} className="text-sm px-2.5 py-1 rounded capitalize"
+                    style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)" }}>
+                    {t.raw_note}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex flex-wrap gap-1 pl-4">
-            {f.tags.map(t => (
-              <span key={t.raw_note} className="text-[11px] px-2 py-0.5 rounded-full capitalize"
-                style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)", border: "1px solid var(--border-light)" }}>
-                {t.raw_note}
-              </span>
-            ))}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -199,7 +242,7 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className="flex-1 py-3 text-[13px] font-medium transition-colors press-active"
+            className="flex-1 py-3 text-base font-medium transition-colors press-active"
             style={{
               color: activeTab === tab.id ? "var(--accent)" : "var(--text-faint)",
               borderBottom: activeTab === tab.id ? "2px solid var(--accent)" : "2px solid transparent",
@@ -212,39 +255,48 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
       </div>
 
       {/* Tab content */}
-      <div className="px-4 py-5">
+      <div className="px-4 py-6">
 
         {/* ── Flavour ─────────────────────────────────────────────────────── */}
         {activeTab === "flavour" && (
-          <div className="fade-in space-y-6">
-            {/* Taste wheel */}
-            <div className="rounded-2xl p-4" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
-              <div className="text-[10px] uppercase tracking-widest mb-3 text-center" style={{ color: "var(--text-faint)" }}>Flavour profile</div>
-              {tasteWheelJsx}
+          <div className="fade-in space-y-8">
+            {/* Two-column: Flavour profile + About coffee */}
+            <div className="flex gap-5">
+              {/* Flavour intensity bars - Left column */}
+              {taste ? (
+                <div className="rounded-2xl p-5" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)", flex: "1 1 50%" }}>
+                  <div className="text-sm uppercase tracking-wider mb-5 font-semibold" style={{ color: "var(--text)" }}>Flavor Profile</div>
+                  <FlavourBars profile={taste} />
+                </div>
+              ) : c.flavour_notes.length > 0 && (
+                <div style={{ flex: "1 1 50%" }}>
+                  <div className="text-sm uppercase tracking-wider mb-4 font-semibold" style={{ color: "var(--text)" }}>Tasting Notes</div>
+                  <div className="flex flex-wrap gap-2">
+                    {c.flavour_notes.map(n => (
+                      <span key={n} className="text-sm px-3 py-1.5 rounded-full capitalize"
+                        style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)", border: "1px solid var(--border-light)" }}>{n}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Flavor description - Right column */}
+              {taste && taste.raw_notes.length > 0 && (
+                <div className="rounded-2xl p-5" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)", flex: "1 1 50%" }}>
+                  <div className="text-sm uppercase tracking-wider mb-3 font-semibold" style={{ color: "var(--text)" }}>About this coffee</div>
+                  <p className="text-base leading-relaxed" style={{ color: "var(--text)" }}>
+                    This coffee features {taste.raw_notes.slice(0, 3).join(", ")} characteristics.
+                    {taste.families.length > 0 && ` The dominant flavor families are ${taste.families.slice(0, 2).map(f => f.family_label.toLowerCase()).join(" and ")}.`}
+                    Best enjoyed with pour-over or espresso to fully appreciate the complex flavor profile.
+                  </p>
+                </div>
+              )}
             </div>
 
-            {/* Chips */}
-            {taste ? (
-              <div>
-                <div className="text-[10px] uppercase tracking-widest mb-3" style={{ color: "var(--text-faint)" }}>Notes</div>
-                <FlavourChips profile={taste} />
-              </div>
-            ) : c.flavour_notes.length > 0 && (
-              <div>
-                <div className="text-[10px] uppercase tracking-widest mb-3" style={{ color: "var(--text-faint)" }}>Tasting notes</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {c.flavour_notes.map(n => (
-                    <span key={n} className="text-[11px] px-2.5 py-1 rounded-full capitalize"
-                      style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)", border: "1px solid var(--border-light)" }}>{n}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Similar coffees */}
+            {/* Similar coffees - Full width below */}
             {similar.length > 0 && (
               <div>
-                <div className="text-[10px] uppercase tracking-widest mb-3" style={{ color: "var(--text-faint)" }}>Similar taste profiles</div>
+                <div className="text-sm uppercase tracking-wider mb-4 font-semibold" style={{ color: "var(--text)" }}>Similar Taste Profiles</div>
                 <SimilarSection similar={similar} />
               </div>
             )}
@@ -253,7 +305,7 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
 
         {/* ── Prices ──────────────────────────────────────────────────────── */}
         {activeTab === "prices" && (
-          <div className="fade-in space-y-5">
+          <div className="fade-in space-y-6">
             {/* Summary stats */}
             {primary && (
               <div className="grid grid-cols-3 gap-2">
@@ -262,13 +314,13 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
                   { label: "Median", value: primary.median_price_gbp },
                   { label: "Best/100g", value: primary.min_per_100g },
                 ].map(({ label, value }) => (
-                  <div key={label} className="rounded-2xl p-3 text-center"
+                  <div key={label} className="rounded-2xl p-4 text-center"
                     style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
-                    <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--text-faint)" }}>{label}</div>
-                    <div className="text-xl font-light" style={{ fontFamily: "var(--font-display)", color: "var(--accent)" }}>
+                    <div className="text-xs uppercase tracking-widest mb-2 font-medium" style={{ color: "var(--text)" }}>{label}</div>
+                    <div className="text-2xl font-light" style={{ fontFamily: "var(--font-display)", color: "var(--accent)" }}>
                       {value != null ? `£${value.toFixed(2)}` : "—"}
                     </div>
-                    {primary.weight_g && <div className="text-[10px] mt-0.5" style={{ color: "var(--text-faint)" }}>{primary.weight_g}g</div>}
+                    {primary.weight_g && <div className="text-xs mt-1" style={{ color: "var(--text)" }}>{primary.weight_g}g</div>}
                   </div>
                 ))}
               </div>
@@ -276,7 +328,7 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
 
             {/* Price per 100g comparison bars */}
             {history && history.variants.length > 0 && (
-              <div className="rounded-2xl p-4" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
+              <div className="rounded-2xl p-5" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
                 <Per100gBars variants={history.variants} />
               </div>
             )}
@@ -284,9 +336,9 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
             {/* Price history chart */}
             {history && history.variants.length > 0 && (
               <div>
-                <div className="text-[10px] uppercase tracking-widest mb-3" style={{ color: "var(--text-faint)" }}>Price history</div>
-                <div className="rounded-2xl p-4" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
-                  <PriceHistoryChart history={history} />
+                <div className="text-sm uppercase tracking-wider mb-4 font-semibold" style={{ color: "var(--text)" }}>Price History</div>
+                <div className="rounded-2xl p-5" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
+                  <PriceLineChart history={history} />
                 </div>
               </div>
             )}
@@ -296,8 +348,8 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
 
             {(!history || history.variants.length === 0) && stats.length === 0 && (
               <div className="py-10 text-center">
-                <div className="text-3xl mb-2">📊</div>
-                <p className="text-sm" style={{ color: "var(--text-muted)" }}>No price data yet</p>
+                <div className="text-4xl mb-3">📊</div>
+                <p className="text-base" style={{ color: "var(--text-muted)" }}>No price data yet</p>
               </div>
             )}
           </div>
@@ -320,8 +372,8 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
             {/* Empty state */}
             {!c.origin_country && !c.process && !c.roast_level && (
               <div className="py-10 text-center">
-                <div className="text-3xl mb-2">🗺</div>
-                <p className="text-sm" style={{ color: "var(--text-muted)" }}>Provenance details unavailable</p>
+                <div className="text-4xl mb-3">🗺</div>
+                <p className="text-base" style={{ color: "var(--text-muted)" }}>Provenance details unavailable</p>
               </div>
             )}
           </div>
@@ -329,65 +381,114 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
 
         {/* ── Stores ──────────────────────────────────────────────────────── */}
         {activeTab === "stores" && (
-          <div className="fade-in space-y-3">
+          <div className="fade-in">
             {c.listings && c.listings.length > 0 ? (
               <>
-                <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--text-faint)" }}>
+                <div className="text-sm uppercase tracking-wider mb-4 font-semibold" style={{ color: "var(--text)" }}>
                   Available from {c.listings.length} {c.listings.length === 1 ? "store" : "stores"}
                 </div>
-                {c.listings.map((l, li) => (
-                  <div key={l.id} className="rounded-2xl overflow-hidden"
-                    style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
-                    {/* Store header */}
-                    <div className="flex items-center justify-between px-4 py-3"
-                      style={{ borderBottom: "1px solid var(--border-light)", backgroundColor: li % 2 === 0 ? "var(--bg-warm)" : "transparent" }}>
-                      <div>
-                        <div className="text-sm font-medium" style={{ fontFamily: "var(--font-display)", fontSize: "1rem" }}>
-                          {l.store_name}
-                        </div>
-                        <div className="text-[11px]" style={{ color: "var(--text-faint)" }}>{l.store_domain}</div>
-                      </div>
-                      {l.product_url && (
-                        <a href={l.product_url} target="_blank" rel="noopener"
-                          className="text-[11px] px-3 py-1.5 rounded-full press-active"
-                          style={{ border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                          Buy ↗
-                        </a>
-                      )}
-                    </div>
 
-                    {/* Variants */}
-                    {l.variants.map(v => (
-                      <div key={v.id} className="flex items-center justify-between px-4 py-2.5"
-                        style={{ borderBottom: "1px solid var(--border-light)", opacity: v.availability_status === "out_of_stock" ? 0.45 : 1 }}>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] px-2 py-0.5 rounded-full capitalize"
-                            style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)" }}>
-                            {v.grind_type.replace(/_/g, " ")}
-                          </span>
-                          {v.availability_status === "out_of_stock" && <span className="text-[10px] text-red-500">OOS</span>}
-                        </div>
-                        <div className="flex items-center gap-4 text-sm">
-                          <span style={{ color: "var(--text-muted)" }}>
-                            {v.weight_g ? (v.weight_g >= 1000 ? `${v.weight_g / 1000}kg` : `${v.weight_g}g`) : "—"}
-                          </span>
-                          <span className="font-medium" style={{ color: "var(--text)" }}>£{v.price_gbp.toFixed(2)}</span>
-                          <span className="text-xs" style={{ color: "var(--accent)" }}>
-                            {v.price_per_100g_gbp ? `£${v.price_per_100g_gbp.toFixed(2)}/100g` : ""}
-                          </span>
-                        </div>
+                {/* Improved stores grid - WEIGHT-BASED COLUMNS */}
+                <div className="space-y-5">
+                  {/* Collect all unique weights across all stores */}
+                  {(() => {
+                    const allWeights = new Set<number>();
+                    c.listings.forEach(l => {
+                      l.variants.forEach(v => {
+                        if (v.weight_g !== null) allWeights.add(v.weight_g);
+                      });
+                    });
+                    const weights = Array.from(allWeights).sort((a, b) => a - b);
+
+                    return (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr style={{ borderBottom: "2px solid var(--border-light)", backgroundColor: "var(--bg-warm)" }}>
+                              <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: "var(--text-faint)" }}>Store</th>
+                              {weights.map(w => (
+                                <th key={w} className="px-3 py-3 text-center whitespace-nowrap text-sm font-semibold" style={{ color: "var(--text-faint)" }}>
+                                  {w >= 1000 ? `${(w / 1000).toFixed(1)}kg` : `${w}g`}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {c.listings.map((listing) => (
+                              <tr key={listing.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                                <td className="px-4 py-3">
+                                  <div className="text-sm font-medium" style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}>
+                                    {listing.store_name}
+                                  </div>
+                                  <div className="text-xs mt-0.5" style={{ color: "var(--text)" }}>
+                                    {listing.store_domain}
+                                  </div>
+                                </td>
+                                {weights.map(w => {
+                                  // Find the best price for this weight at this store
+                                  const variantsForWeight = listing.variants.filter(v => v.weight_g === w);
+                                  const bestVariant = variantsForWeight.reduce((best, current) => {
+                                    if (current.availability_status === "out_of_stock") return best;
+                                    if (!best || current.price_gbp < best.price_gbp) return current;
+                                    return best;
+                                  }, variantsForWeight[0] || null);
+
+                                  const isOutOfStock = bestVariant?.availability_status === "out_of_stock";
+
+                                  if (!bestVariant) {
+                                    return (
+                                      <td key={w} className="px-3 py-3 text-center" style={{ color: "var(--text-faint)" }}>
+                                        —
+                                      </td>
+                                    );
+                                  }
+
+                                  return (
+                                    <td key={w} className="px-3 py-3 text-center" style={{ opacity: isOutOfStock ? 0.5 : 1 }}>
+                                      <div className="text-sm font-medium" style={{ color: isOutOfStock ? "var(--text-faint)" : "var(--accent)" }}>
+                                        £{bestVariant.price_gbp.toFixed(2)}
+                                      </div>
+                                      {bestVariant.price_per_100g_gbp && (
+                                        <div className="text-xs mt-0.5" style={{ color: "var(--text)" }}>
+                                          £{bestVariant.price_per_100g_gbp.toFixed(2)}/100g
+                                        </div>
+                                      )}
+                                      {isOutOfStock ? (
+                                        <div className="text-xs mt-1 font-medium" style={{ color: "var(--text-faint)" }}>Out of Stock</div>
+                                      ) : (
+                                        <div className="text-xs mt-1" style={{ color: "var(--accent)" }}>✓ In stock</div>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
-                  </div>
-                ))}
-                <p className="text-[11px] pt-1" style={{ color: "var(--text-faint)" }}>
-                  Prices updated daily. Always verify before purchasing.
+                    );
+                  })()}
+                </div>
+
+                {/* Buy buttons */}
+                <div className="mt-6 space-y-2">
+                  {c.listings.filter(l => l.product_url).map(l => (
+                    <a key={l.id} href={l.product_url} target="_blank" rel="noopener"
+                      className="block text-center text-sm px-4 py-2.5 rounded-lg press-active"
+                      style={{ border: "1px solid var(--border)", color: "var(--accent)" }}>
+                      Shop at {l.store_name} ↗
+                    </a>
+                  ))}
+                </div>
+
+                <p className="text-xs pt-4 mt-4" style={{ color: "var(--text-faint)", borderTop: "1px solid var(--border-light)" }}>
+                  Prices updated daily. Always verify availability and price before purchasing.
                 </p>
               </>
             ) : (
               <div className="py-10 text-center">
-                <div className="text-3xl mb-2">🏪</div>
-                <p className="text-sm" style={{ color: "var(--text-muted)" }}>No store listings yet</p>
+                <div className="text-4xl mb-3">🏪</div>
+                <p className="text-base" style={{ color: "var(--text-muted)" }}>No store listings yet</p>
               </div>
             )}
           </div>

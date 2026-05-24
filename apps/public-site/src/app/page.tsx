@@ -84,14 +84,13 @@ export default function HomePage() {
         setTotalRoasters(d.total ?? 0);
       }).catch(() => {});
 
+    fetch(`${API_BASE}/api/v1/coffees?page_size=1`)
+      .then(r => r.json()).then(d => setTotalCoffees(d.total ?? 0)).catch(() => {});
+
     fetch(`${API_BASE}/api/v1/origins`)
       .then(r => r.json()).then(d => {
         setOrigins((d.origins ?? []).slice(0, 6));
-        setTotalCoffees(d.total_coffees ?? 0);
       }).catch(() => {});
-
-    fetch(`${API_BASE}/api/v1/coffees?page_size=1`)
-      .then(r => r.json()).then(d => setTotalCoffees(d.total ?? 0)).catch(() => {});
   }, []);
 
   return (
@@ -99,9 +98,6 @@ export default function HomePage() {
 
       {/* ── 1. Hero ─────────────────────────────────────────────────────── */}
       <HeroSection totalCoffees={totalCoffees} totalRoasters={totalRoasters} />
-
-      {/* ── 2. Flavour Atlas teaser ─────────────────────────────────────── */}
-      <FlavourAtlasTeaser />
 
       {/* ── 3. New releases ─────────────────────────────────────────────── */}
       {newReleases.length > 0 && <NewReleasesSection coffees={newReleases} />}

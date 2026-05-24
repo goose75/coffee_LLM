@@ -151,44 +151,50 @@ export default function ComparePage() {
         ))}
       </div>
 
-      {/* ── Sensory ribbons ── */}
-      <section className="cmp-section">
-        <h2 className="cmp-section-title">Sensory Profile</h2>
-        <SensoryRibbons coffees={coffees} />
-      </section>
+      {/* ── Sensory ribbons & Flavour families (side by side) ── */}
+      <div className="cmp-two-col">
+        <section className="cmp-section">
+          <h2 className="cmp-section-title">Sensory Profile</h2>
+          <SensoryRibbons coffees={coffees} />
+        </section>
 
-      {/* ── Flavour families ── */}
-      <section className="cmp-section">
-        <h2 className="cmp-section-title">Flavour Families</h2>
-        <FlavourFamilyBands coffees={coffees} />
-      </section>
+        <section className="cmp-section">
+          <h2 className="cmp-section-title">Flavour Families</h2>
+          <FlavourFamilyBands coffees={coffees} />
+        </section>
+      </div>
 
-      {/* ── Fact grid ── */}
-      <section className="cmp-section">
-        <h2 className="cmp-section-title">Details</h2>
-        <FactGrid coffees={coffees} />
-      </section>
+      {/* ── Fact grid & Price (side by side) ── */}
+      <div className="cmp-two-col">
+        <section className="cmp-section">
+          <h2 className="cmp-section-title">Details</h2>
+          <FactGrid coffees={coffees} />
+        </section>
 
-      {/* ── Price ── */}
-      <section className="cmp-section">
-        <h2 className="cmp-section-title">Price</h2>
-        <PriceComparison coffees={coffees} />
-      </section>
+        <section className="cmp-section">
+          <h2 className="cmp-section-title">Price</h2>
+          <PriceComparison coffees={coffees} />
+        </section>
+      </div>
 
-      {/* ── Brew suitability ── */}
-      <section className="cmp-section">
-        <h2 className="cmp-section-title">Brew Suitability</h2>
-        <BrewSuitability coffees={coffees} />
-      </section>
+      {/* ── Brew suitability & Coffee links (side by side) ── */}
+      <div className="cmp-two-col">
+        <section className="cmp-section">
+          <h2 className="cmp-section-title">Brew Suitability</h2>
+          <BrewSuitability coffees={coffees} />
+        </section>
 
-      {/* Coffee links */}
-      <div className="cmp-links">
-        {coffees.map((c, i) => (
-          <Link key={c.id} href={`/coffees/${c.id}`} className="cmp-link"
-            style={{ borderColor: COFFEE_COLOURS[i] + "44", color: COFFEE_COLOURS[i] }}>
-            View {shortName(c.canonical_name)} →
-          </Link>
-        ))}
+        <div>
+          <h2 className="cmp-section-title">View Coffees</h2>
+          <div className="cmp-links-vertical">
+            {coffees.map((c, i) => (
+              <Link key={c.id} href={`/coffees/${c.id}`} className="cmp-link"
+                style={{ borderColor: COFFEE_COLOURS[i] + "44", color: COFFEE_COLOURS[i] }}>
+                View {shortName(c.canonical_name)} →
+              </Link>
+            ))}
+          </div>
+        </div>
       </div>
 
       <style jsx>{styles}</style>
@@ -460,26 +466,28 @@ const styles = `
   }
   .cmp-back {
     font-family: var(--font-body);
-    font-size: 12px;
-    color: var(--text-faint);
+    font-size: 15px;
+    color: var(--text);
     text-decoration: none;
     letter-spacing: 0.06em;
     display: block;
     margin-bottom: 12px;
     transition: color 0.15s;
+    font-weight: 500;
   }
   .cmp-back:hover { color: var(--accent); }
   .cmp-eyebrow {
     font-family: var(--font-body);
-    font-size: 11px;
+    font-size: 13px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--accent);
     margin: 0 0 8px;
+    font-weight: 600;
   }
   .cmp-title {
     font-family: var(--font-display);
-    font-size: clamp(22px, 4vw, 40px);
+    font-size: clamp(26px, 4.5vw, 48px);
     font-weight: 300;
     font-style: italic;
     color: var(--text);
@@ -500,19 +508,20 @@ const styles = `
     padding: 0 32px;
   }
   .cmp-contrast-text {
-    font-family: var(--font-display);
-    font-size: 18px;
-    font-style: italic;
-    font-weight: 400;
-    color: var(--text-muted);
-    margin: 0 0 6px;
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-style: normal;
+    font-weight: 500;
+    color: var(--text);
+    margin: 0 0 8px;
     line-height: 1.5;
   }
   .cmp-shared {
     font-family: var(--font-body);
-    font-size: 12px;
-    color: var(--text-faint);
+    font-size: 16px;
+    color: var(--text);
     margin: 0;
+    font-weight: 500;
   }
 
   /* Legend */
@@ -527,31 +536,47 @@ const styles = `
   .cmp-legend-item {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     font-family: var(--font-body);
-    font-size: 13px;
-    color: var(--text-muted);
+    font-size: 16px;
+    color: var(--text);
+    font-weight: 500;
   }
   .cmp-legend-dot {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
   }
-  .cmp-legend-name { font-weight: 500; }
+  .cmp-legend-name { font-weight: 600; }
 
   /* Sections */
+  .cmp-two-col {
+    max-width: 1280px;
+    margin: 32px auto 0;
+    padding: 0 32px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+  }
   .cmp-section {
     max-width: 860px;
     margin: 32px auto 0;
     padding: 0 32px;
   }
+  .cmp-two-col .cmp-section {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
   .cmp-section-title {
     font-family: var(--font-body);
-    font-size: 11px;
+    font-size: 13px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--text-faint);
+    font-weight: 600;
+    color: var(--text);
     margin: 0 0 16px;
     padding-bottom: 8px;
     border-bottom: 1px solid var(--border-light);
@@ -567,8 +592,8 @@ const styles = `
   }
   .ribbon-label {
     font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 600;
     color: var(--text);
     text-align: right;
   }
@@ -580,8 +605,8 @@ const styles = `
   }
   .ribbon-low, .ribbon-high {
     font-family: var(--font-body);
-    font-size: 10px;
-    color: var(--text-faint);
+    font-size: 12px;
+    color: var(--text);
     white-space: nowrap;
     width: 44px;
     flex-shrink: 0;
@@ -630,8 +655,8 @@ const styles = `
     flex-direction: column;
     gap: 2px;
     font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 700;
     min-width: 52px;
   }
 
@@ -646,8 +671,8 @@ const styles = `
   .band-empty { opacity: 0.4; }
   .band-label {
     font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 600;
     text-align: right;
   }
   .band-bars {
@@ -670,8 +695,8 @@ const styles = `
   }
   .band-bar-val {
     font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 700;
     min-width: 16px;
   }
 
@@ -689,14 +714,15 @@ const styles = `
   }
   .fact-label {
     font-family: var(--font-body);
-    font-size: 11px;
+    font-size: 13px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-faint);
   }
   .fact-val {
     font-family: var(--font-body);
-    font-size: 13px;
+    font-size: 15px;
     color: var(--text);
     padding: 4px 10px;
     border-left: 2px solid;
@@ -713,8 +739,8 @@ const styles = `
   }
   .price-name {
     font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -733,8 +759,8 @@ const styles = `
   }
   .price-val {
     font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
     color: var(--text);
     text-align: right;
     white-space: nowrap;
@@ -752,16 +778,17 @@ const styles = `
   .brew-icon { font-size: 18px; width: 24px; }
   .brew-label {
     font-family: var(--font-body);
-    font-size: 13px;
-    color: var(--text-muted);
+    font-size: 15px;
+    color: var(--text);
     width: 64px;
+    font-weight: 500;
   }
   .brew-badge {
-    padding: 4px 12px;
+    padding: 6px 14px;
     border-radius: 100px;
     font-family: var(--font-body);
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 700;
     border: 1px solid var(--border-light);
   }
   .brew-yes { }
@@ -776,12 +803,18 @@ const styles = `
     gap: 12px;
     flex-wrap: wrap;
   }
+  .cmp-links-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
   .cmp-link {
-    padding: 10px 20px;
+    padding: 12px 24px;
     border-radius: 100px;
     border: 1.5px solid;
     font-family: var(--font-body);
-    font-size: 13px;
+    font-size: 15px;
+    font-weight: 500;
     text-decoration: none;
     transition: opacity 0.15s;
   }
@@ -806,12 +839,13 @@ const styles = `
   .cmp-empty-btn {
     display: inline-block;
     margin-top: 20px;
-    padding: 10px 24px;
+    padding: 12px 28px;
     border-radius: 100px;
     border: 1px solid var(--border);
-    color: var(--text-muted);
+    color: var(--text);
     text-decoration: none;
-    font-size: 13px;
+    font-size: 15px;
+    font-weight: 500;
     transition: border-color 0.15s, color 0.15s;
   }
   .cmp-empty-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -838,10 +872,11 @@ const styles = `
   @media (max-width: 600px) {
     .cmp-header, .cmp-contrast, .cmp-legend, .cmp-section, .cmp-links { padding: 0 20px; }
     .cmp-header { padding-top: 32px; }
+    .cmp-two-col { grid-template-columns: 1fr; gap: 32px; padding: 0 20px; }
     .ribbon-row { grid-template-columns: 72px 1fr 44px; }
     .ribbon-low, .ribbon-high { display: none; }
     .band-row { grid-template-columns: 72px 1fr; }
-    .fact-label { font-size: 10px; }
+    .fact-label { font-size: 12px; }
     .price-row { grid-template-columns: 120px 1fr 90px; }
   }
 `;

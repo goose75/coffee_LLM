@@ -138,6 +138,7 @@ async def run(dry_run: bool) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.bean_listing import BeanListing
     from app.models.canonical_bean import CanonicalBean
+    from app.services.extraction.product_classifier import ProductClassifier
     from app.services.taste.taxonomy import TAXONOMY
     from sqlalchemy import select, update
 
@@ -159,8 +160,32 @@ async def run(dry_run: bool) -> None:
         result = await session.execute(
             select(CanonicalBean).where(CanonicalBean.flavour_notes == [])
         )
-        beans = result.scalars().all()
-        print(f"Beans with empty flavour_notes: {len(beans)}")
+        all_beans = result.scalars().all()
+
+        # Filter out non-coffee products
+        beans = []
+        non_coffee_beans = []
+        for bean in all_beans:
+            is_coffee, reason = ProductClassifier.is_coffee_bean_product(
+                title=bean.canonical_name,
+                description=None
+            )
+            if is_coffee:
+                beans.append(bean)
+            else:
+                non_coffee_beans.append((bean, reason))
+
+        print(f"Beans with empty flavour_notes: {len(all_beans)}")
+        print(f"Non-coffee products filtered: {len(non_coffee_beans)}")
+        print(f"Coffee beans to process: {len(beans)}")
+        print()
+
+        # Show filtered non-coffee products
+        if non_coffee_beans and len(non_coffee_beans) <= 20:
+            print("Filtered non-coffee products:")
+            for bean, reason in non_coffee_beans:
+                print(f"  ✗ {bean.canonical_name[:60]:60} ({reason})")
+            print()
 
         bean_ids = [b.id for b in beans]
 
@@ -214,7 +239,14 @@ async def run(dry_run: bool) -> None:
         if not dry_run:
             await session.commit()
 
-        print(f"\nDone: {updated} beans updated, {skipped} skipped (no description or no notes found)")
+        print(f"\n{'='*70}")
+        print("SUMMARY")
+        print(f"{'='*70}")
+        print(f"Non-coffee products filtered: {len(non_coffee_beans)} (tea, pods, machines, etc.)")
+        print(f"Coffee beans processed:      {len(beans)}")
+        print(f"Updated with flavour notes:  {updated}")
+        print(f"Skipped (no descriptions):   {skipped}")
+        print(f"{'='*70}")
 
         if not dry_run and updated > 0:
             print("\nNow triggering flavour tagger on updated beans...")

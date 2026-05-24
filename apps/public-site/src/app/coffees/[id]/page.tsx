@@ -7,8 +7,6 @@ import {
 } from "@/lib/api";
 import CoffeeDetailTabs from "@/components/CoffeeDetailTabs";
 import CompareButtonDetail from "@/components/CompareButtonDetail";
-import BrewFit from "@/components/BrewFit";
-import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 
 const PROCESS_COLORS: Record<string, string> = {
   washed: "#6b9e8c", natural: "#c4763a", honey: "#d4a03a",
@@ -118,51 +116,38 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
       <div className="h-1.5 w-full" style={{ backgroundColor: processColor }} />
 
       {/* Hero */}
-      <div className="px-4 pt-5 pb-4" style={{ borderBottom: "1px solid var(--border-light)" }}>
-        <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--text-faint)" }}>
+      <div className="px-4 pt-6 pb-5" style={{ borderBottom: "1px solid var(--border-light)" }}>
+        <div className="text-sm uppercase tracking-widest mb-3" style={{ color: "var(--text)" }}>
           {[c.origin_country, c.origin_region].filter(Boolean).join(" · ")}
         </div>
 
-        <h1 className="text-3xl font-light leading-tight mb-1" style={{ fontFamily: "var(--font-display)" }}>
+        <h1 className="text-4xl font-light leading-tight mb-2" style={{ fontFamily: "var(--font-display)" }}>
           {c.canonical_name}
         </h1>
 
         {c.farm_or_estate && (
-          <p className="text-sm italic mb-3" style={{ fontFamily: "var(--font-display)", color: "var(--text-muted)" }}>
+          <p className="text-base italic mb-4" style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}>
             {c.farm_or_estate}
           </p>
         )}
 
-        {/* Flavour notes — horizontal scroll strip */}
-        {c.flavour_notes.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 mb-4"
-            style={{ scrollbarWidth: "none" }}>
-            {c.flavour_notes.map(n => (
-              <span key={n} className="flex-shrink-0 text-xs px-3 py-1 rounded-full capitalize"
-                style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)", border: "1px solid var(--border-light)" }}>
-                {n}
-              </span>
-            ))}
-          </div>
-        )}
-
         {/* Brew badges */}
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-5">
           {c.espresso_suitable_flag && (
-            <span className="text-[11px] px-2.5 py-1 rounded-full font-medium"
+            <span className="text-xs px-3 py-2 rounded-full font-medium"
               style={{ backgroundColor: "var(--accent-dim)", color: "var(--accent)", border: "1px solid var(--accent)" }}>
               ☕ Espresso
             </span>
           )}
           {c.filter_suitable_flag && (
-            <span className="text-[11px] px-2.5 py-1 rounded-full"
-              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+            <span className="text-xs px-3 py-2 rounded-full"
+              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)", border: "1px solid var(--border)" }}>
               🫗 Filter
             </span>
           )}
           {c.decaf_flag && (
-            <span className="text-[11px] px-2.5 py-1 rounded-full"
-              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)" }}>Decaf</span>
+            <span className="text-xs px-3 py-2 rounded-full"
+              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)" }}>Decaf</span>
           )}
           <CompareButtonDetail coffeeId={c.id} coffeeName={c.canonical_name} />
         </div>
@@ -172,21 +157,21 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
           <div>
             {c.min_price_gbp != null ? (
               <>
-                <span className="text-2xl font-light" style={{ fontFamily: "var(--font-display)", color: "var(--accent)" }}>
+                <span className="text-3xl font-light" style={{ fontFamily: "var(--font-display)", color: "var(--accent)" }}>
                   £{c.min_price_gbp.toFixed(2)}
                 </span>
-                <span className="text-xs ml-1.5" style={{ color: "var(--text-faint)" }}>
+                <span className="text-sm ml-2" style={{ color: "var(--text)" }}>
                   from · {c.store_count ?? 0} {(c.store_count ?? 0) === 1 ? "store" : "stores"}
                 </span>
-                {bestP100 && <div className="text-xs mt-0.5" style={{ color: "var(--text-faint)" }}>Best £{bestP100.toFixed(2)}/100g</div>}
+                {bestP100 && <div className="text-sm mt-1" style={{ color: "var(--text)" }}>Best £{bestP100.toFixed(2)}/100g</div>}
               </>
             ) : (
-              <span className="text-sm" style={{ color: "var(--text-faint)" }}>Price unavailable</span>
+              <span className="text-base" style={{ color: "var(--text)" }}>Price unavailable</span>
             )}
           </div>
           {c.roast_level && (
-            <div className="w-28 flex-shrink-0">
-              <div className="text-[10px] uppercase tracking-wider mb-1.5 text-right" style={{ color: "var(--text-faint)" }}>
+            <div className="w-32 flex-shrink-0">
+              <div className="text-sm uppercase tracking-wider mb-2 text-right font-semibold" style={{ color: "var(--text)" }}>
                 {c.roast_level.replace(/_/g, " ")}
               </div>
               <RoastBar level={c.roast_level} />
@@ -196,16 +181,6 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
       </div>
 
       {/* Tabbed detail sections */}
-      {/* Grounded explanation */}
-      <div className="px-4 pb-1">
-        <ExplanationBlurb type="coffee" params={{ coffeeId: c.id }} />
-      </div>
-
-      {/* Brew Fit */}
-      <div className="px-4 pb-2">
-        <BrewFit coffeeId={c.id} />
-      </div>
-
       <CoffeeDetailTabs
         coffee={c}
         history={history}
