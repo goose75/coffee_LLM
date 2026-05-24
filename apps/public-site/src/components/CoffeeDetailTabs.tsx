@@ -473,7 +473,7 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
                 {/* Buy buttons */}
                 <div className="mt-6 space-y-2">
                   {c.listings.filter(l => l.product_url).map(l => (
-                    <a key={l.id} href={l.product_url} target="_blank" rel="noopener"
+                    <a key={l.id} href={l.product_url || undefined} target="_blank" rel="noopener"
                       className="block text-center text-sm px-4 py-2.5 rounded-lg press-active"
                       style={{ border: "1px solid var(--border)", color: "var(--accent)" }}>
                       Shop at {l.store_name} ↗
