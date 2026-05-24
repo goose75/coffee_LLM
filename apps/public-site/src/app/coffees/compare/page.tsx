@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import ComparePageContent from "./compare-content";
 
+export const dynamic = 'force-dynamic';
+
 export default function ComparePage() {
   return (
     <Suspense fallback={<ComparePageSkeleton />}>

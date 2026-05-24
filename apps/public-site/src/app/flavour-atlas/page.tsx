@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import FlavourAtlasContent from "./flavour-atlas-content";
 
+export const dynamic = 'force-dynamic';
+
 export default function FlavourAtlasPage() {
   return (
     <Suspense fallback={<FlavourAtlasSkeleton />}>

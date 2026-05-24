@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import OriginsContent from "./origins-content";
 
+export const dynamic = 'force-dynamic';
+
 export default function OriginsPage() {
   return (
     <Suspense fallback={<OriginsSkeleton />}>
