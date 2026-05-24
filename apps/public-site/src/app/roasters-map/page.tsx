@@ -2,6 +2,37 @@
 
 import { useState, useEffect, useRef } from "react";
 
+// Declare google namespace for TypeScript
+declare global {
+  namespace google {
+    namespace maps {
+      export interface LatLngLiteral {
+        lat: number;
+        lng: number;
+      }
+      export class Map {
+        constructor(element: HTMLElement, options?: any);
+        setCenter(latlng: LatLngLiteral | LatLng): void;
+        setZoom(zoom: number): void;
+      }
+      export class Marker {
+        constructor(options?: any);
+        setMap(map: Map | null): void;
+        setTitle(title: string): void;
+        getPosition(): LatLngLiteral | null;
+      }
+      export class InfoWindow {
+        constructor(options?: any);
+        open(options?: any): void;
+        close(): void;
+      }
+      export class LatLng {
+        constructor(lat: number, lng: number);
+      }
+    }
+  }
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
