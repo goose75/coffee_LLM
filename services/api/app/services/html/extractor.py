@@ -1,12 +1,12 @@
 """
-HTML Extractor — wrapper around existing schema.org/html/llm parsers.
+HTML Extractor — wrapper around existing schema.org/html/hybrid extractors.
 
 This extractor handles both single-product and multi-product (listing) pages:
 
 Single-product page flow:
 1. Try schema.org microdata extraction
 2. If failed or low confidence, try HTML rules-based extraction
-3. If still failed or low confidence, try LLM-assisted extraction
+3. If still failed or low confidence, try hybrid extraction (rules → Ollama local → API LLM)
 
 Multi-product (listing) page flow:
 1. Detect product containers (WooCommerce .product, Shopify .product-item, etc.)
@@ -24,7 +24,7 @@ from typing import Optional
 
 from app.services.extraction.schema_org_parser import SchemaOrgParser
 from app.services.extraction.html_parser import HtmlRulesParser
-from app.services.extraction.llm_parser import LLMParser, clean_page_text
+from app.services.extraction.hybrid_extractor import HybridExtractor
 from app.services.extraction.payload import ExtractionPayload, ExtractionResult as ExtractionResultModel
 from .product_listing_extractor import ProductListingExtractor
 
@@ -41,14 +41,14 @@ class HtmlExtractor:
     Fallback strategy (per product):
       1. Schema.org (if confidence >= 0.4)
       2. HTML rules (if confidence >= 0.4)
-      3. LLM (if both failed or confidence < 0.4)
+      3. Hybrid (rules → Ollama local LLM → Anthropic API LLM) (if both failed or confidence < 0.4)
     """
 
     def __init__(self):
         """Initialize parsers."""
         self.schema_org_parser = SchemaOrgParser()
         self.html_rules_parser = HtmlRulesParser()
-        self.llm_parser = LLMParser()
+        self.hybrid_extractor = HybridExtractor(use_ollama=True, use_api_fallback=True)
         self.listing_extractor = ProductListingExtractor()
 
     async def extract_products(
@@ -160,21 +160,22 @@ class HtmlExtractor:
         except Exception as exc:
             log.debug(f"HTML rules extraction failed for {url}: {exc}")
 
-        # Skip LLM extraction for now due to Anthropic API credit issues
-        # When API is fixed, re-enable LLM as fallback for low-confidence results
-        #
-        # If both deterministic methods failed or low confidence, would try LLM
-        # best_confidence = max([r.payload.confidence for r in results], default=0.0)
-        # if best_confidence < 0.3:
-        #     try:
-        #         page_text = clean_page_text(html_bytes)
-        #         llm_result = await self.llm_parser.extract(page_text, url)
-        #         extraction_result = llm_result.result
-        #         if extraction_result.validation_status in ("valid", "partial"):
-        #             results.append(extraction_result)
-        #             log.info(f"LLM extraction fallback for {url}")
-        #     except Exception as exc:
-        #         log.debug(f"LLM extraction skipped for {url}: {exc}")
+        # Try hybrid extraction (rules → Ollama local → API LLM) as final fallback
+        best_confidence = max([r.payload.confidence for r in results], default=0.0)
+        if best_confidence < 0.4:
+            try:
+                log.debug(f"Hybrid extraction fallback for {url} (best confidence: {best_confidence:.2f})")
+                hybrid_result = await self.hybrid_extractor.extract(html_bytes, url)
+                hybrid_extraction = hybrid_result.final_result
+
+                if hybrid_extraction.validation_status in ("valid", "partial"):
+                    results.append(hybrid_extraction)
+                    log.info(
+                        f"Hybrid extraction succeeded for {url} "
+                        f"(strategy={hybrid_result.strategy_used}, confidence={hybrid_result.confidence:.2f})"
+                    )
+            except Exception as exc:
+                log.debug(f"Hybrid extraction failed for {url}: {exc}")
 
         if not results:
             log.debug(
