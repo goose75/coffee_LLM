@@ -1,11 +1,3 @@
 {
-  "$schema": "https://railway.app/schema.json",
-  "build": {
-    "builder": "docker"
-  },
-  "deploy": {
-    "numReplicas": 1,
-    "sleepApplication": false,
-    "restartPolicyMaxRetries": 10
-  }
+  "$schema": "https://railway.app/schema.json"
 }
