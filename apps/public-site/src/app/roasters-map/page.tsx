@@ -27,7 +27,7 @@ declare global {
       }
       export class InfoWindow {
         constructor(options?: any);
-        open(options?: any): void;
+        open(map?: Map | null, anchor?: Marker): void;
         close(): void;
         setContent(content: string | HTMLElement): void;
       }
