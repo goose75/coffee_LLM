@@ -1,0 +1,78 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: coffee_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-coffee}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coffee}
+      POSTGRES_DB: ${POSTGRES_DB:-coffee_platform}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coffee"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: coffee_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: coffee_api
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DEBUG: "false"
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://coffee:coffee@postgres:5432/coffee_platform}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-4-1}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  admin-app:
+    build:
+      context: ./apps/admin-app
+      dockerfile: Dockerfile
+    container_name: coffee_admin
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+
+  public-site:
+    build:
+      context: ./apps/public-site
+      dockerfile: Dockerfile
+    container_name: coffee_public
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
