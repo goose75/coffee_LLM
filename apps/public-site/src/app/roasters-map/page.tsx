@@ -10,6 +10,9 @@ declare global {
         lat: number;
         lng: number;
       }
+      export interface MapsEventListener {
+        remove(): void;
+      }
       export class Map {
         constructor(element: HTMLElement, options?: any);
         setCenter(latlng: LatLngLiteral | LatLng): void;
@@ -20,11 +23,13 @@ declare global {
         setMap(map: Map | null): void;
         setTitle(title: string): void;
         getPosition(): LatLngLiteral | null;
+        addListener(eventName: string, callback: Function): MapsEventListener;
       }
       export class InfoWindow {
         constructor(options?: any);
         open(options?: any): void;
         close(): void;
+        setContent(content: string | HTMLElement): void;
       }
       export class LatLng {
         constructor(lat: number, lng: number);
