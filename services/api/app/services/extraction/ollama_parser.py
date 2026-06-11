@@ -230,7 +230,7 @@ Extract structured coffee data. Respond with ONLY valid JSON, no other text."""
         Call Ollama API with timeout.
         Returns raw response text (expected to be JSON).
         """
-        import aiohttp
+        import httpx
 
         payload = {
             "model": self.model,
@@ -240,25 +240,24 @@ Extract structured coffee data. Respond with ONLY valid JSON, no other text."""
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(
                     f"{self.base_url}/api/generate",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout),
-                ) as resp:
-                    if resp.status != 200:
-                        raise RuntimeError(
-                            f"Ollama returned status {resp.status}"
-                        )
-                    data = await resp.json()
-                    response_text = data.get("response", "")
+                )
+                if resp.status_code != 200:
+                    raise RuntimeError(
+                        f"Ollama returned status {resp.status_code}"
+                    )
+                data = resp.json()
+                response_text = data.get("response", "")
 
-                    if not response_text:
-                        raise ValueError("Empty response from Ollama")
+                if not response_text:
+                    raise ValueError("Empty response from Ollama")
 
-                    return response_text
+                return response_text
 
-        except aiohttp.ClientConnectorError as exc:
+        except (httpx.ConnectError, ConnectionError) as exc:
             raise ConnectionError(
                 f"Cannot connect to Ollama at {self.base_url}"
             ) from exc
