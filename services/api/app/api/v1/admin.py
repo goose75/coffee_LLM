@@ -2032,6 +2032,96 @@ async def merge_duplicate_canonical_beans(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Parser Testing (Smart Selection)
+
+@router.post("/test-parser")
+async def test_parser(
+    store_id: str = Query(...),
+    parser: str = Query(...),
+    url: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Test a specific parser on a URL and return extraction results."""
+    try:
+        store_uuid = uuid.UUID(store_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID")
+
+    store = (await db.execute(select(Store).where(Store.id == store_uuid))).scalar_one_or_none()
+    if store is None:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    # Validate parser
+    valid_parsers = ["html", "schema_org", "llm"]
+    if parser not in valid_parsers:
+        raise HTTPException(status_code=422, detail=f"Invalid parser. Must be one of: {', '.join(valid_parsers)}")
+
+    try:
+        import httpx
+        from app.services.extraction.schema_org_parser import SchemaOrgParser
+        from app.services.extraction.html_parser import HtmlRulesParser
+        from app.services.extraction.llm_parser import LLMParser
+
+        # Fetch page
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return {
+                    "parser": parser,
+                    "status": "error",
+                    "confidence": 0,
+                    "fields_extracted": 0,
+                    "extraction_summary": f"Failed to fetch page (HTTP {resp.status_code})",
+                }
+            html_bytes = resp.content
+
+        # Test parser
+        if parser == "html":
+            extractor = HtmlRulesParser()
+        elif parser == "schema_org":
+            extractor = SchemaOrgParser()
+        else:  # llm
+            extractor = LLMParser()
+
+        result = extractor.extract(html_bytes, url)
+
+        # Count extracted fields
+        payload = result.payload
+        if payload:
+            fields_count = sum(1 for field in [
+                payload.coffee_name,
+                payload.origin_country,
+                payload.roast_level,
+                payload.process,
+                payload.varietal,
+                payload.flavour_notes,
+                payload.price_variants,
+            ] if field)
+            confidence = float(payload.confidence) if payload.confidence else 0
+        else:
+            fields_count = 0
+            confidence = 0
+
+        return {
+            "parser": parser,
+            "status": result.validation_status,
+            "confidence": confidence,
+            "fields_extracted": fields_count,
+            "extraction_summary": f"Extracted {fields_count} fields with {result.validation_status} status",
+        }
+
+    except Exception as e:
+        log.exception(f"Parser test error for {parser}:")
+        return {
+            "parser": parser,
+            "status": "error",
+            "confidence": 0,
+            "fields_extracted": 0,
+            "extraction_summary": f"Test error: {str(e)}",
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Feedback loops (Phase 4)
 
 # Include feedback router endpoints

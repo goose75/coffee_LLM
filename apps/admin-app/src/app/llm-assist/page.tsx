@@ -814,6 +814,80 @@ function DiagnosisStatus({
 }
 
 // ============================================================================
+// Parser Testing & Selection
+// ============================================================================
+
+interface ParserScore {
+  parser: string;
+  score: number;
+  confidence: number;
+  status: string;
+  reason: string;
+}
+
+async function testParsersOnStore(store: Store, detail: StoreDetail): Promise<ParserScore[]> {
+  // Test each parser (html, schema_org, llm) and rank by extraction quality
+
+  const scores: ParserScore[] = [];
+
+  // Skip testing if no source pages
+  if (!detail.source_pages || detail.source_pages.length === 0) {
+    return [];
+  }
+
+  // Use first source page for testing
+  const testPage = detail.source_pages[0];
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+  try {
+    // Test each parser
+    for (const parser of ["html", "schema_org", "llm"]) {
+      try {
+        // Call extraction API with specific parser
+        const response = await fetch(
+          `${apiUrl}/api/v1/admin/test-parser?store_id=${store.id}&parser=${parser}&url=${encodeURIComponent(testPage.url)}`,
+          { method: "POST" }
+        );
+
+        if (response.ok) {
+          const result = await response.json();
+
+          // Score based on: status (40%) + confidence (40%) + field count (20%)
+          const statusScore = result.status === "valid" ? 1.0 : result.status === "partial" ? 0.5 : 0.0;
+          const confidenceScore = result.confidence || 0;
+          const fieldScore = (result.fields_extracted || 0) / 7; // Max 7 fields for coffee
+
+          const totalScore = (statusScore * 0.4) + (confidenceScore * 0.4) + Math.min(fieldScore, 1.0) * 0.2;
+
+          scores.push({
+            parser,
+            score: totalScore,
+            confidence: result.confidence || 0,
+            status: result.status || "unknown",
+            reason: result.extraction_summary || "No data extracted",
+          });
+        }
+      } catch (e: any) {
+        // Parser test failed, assign low score
+        console.log(`DEBUG: Parser ${parser} test failed:`, e.message);
+        scores.push({
+          parser,
+          score: 0,
+          confidence: 0,
+          status: "error",
+          reason: `Test failed: ${e.message}`,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Parser testing error:", e);
+  }
+
+  // Sort by score descending
+  return scores.sort((a, b) => b.score - a.score);
+}
+
+// ============================================================================
 // Helper functions
 // ============================================================================
 
@@ -850,8 +924,38 @@ async function generateLLMDiagnosis(store: Store, detail: StoreDetail): Promise<
   } catch (e) {
     console.error("LLM diagnosis failed:", e);
 
-    // Fallback heuristic diagnosis
-    return generateHeuristicDiagnosis(store, detail);
+    // Fallback heuristic diagnosis with PARSER TESTING
+    const diagnosis = generateHeuristicDiagnosis(store, detail);
+
+    // Test parsers and add recommendation if extraction is failing
+    if (diagnosis.current_issues.length > 0) {
+      try {
+        console.log(`DEBUG: Testing parsers for ${store.name}...`);
+        const parserScores = await testParsersOnStore(store, detail);
+
+        if (parserScores.length > 0 && parserScores[0].score > 0) {
+          const bestParser = parserScores[0];
+          const others = parserScores.slice(1);
+
+          console.log(`DEBUG: Best parser for ${store.name}: ${bestParser.parser} (score: ${bestParser.score.toFixed(2)})`);
+
+          // Add parser switch recommendation if current parser isn't the best
+          if (bestParser.parser !== store.parser_strategy) {
+            diagnosis.recommended_actions.unshift({
+              action: `switch_to_${bestParser.parser}`,
+              description: `Switch to ${bestParser.parser} parser (scored ${(bestParser.score * 100).toFixed(0)}% vs current ${store.parser_strategy})`,
+              priority: "high",
+              expected_improvement: `${bestParser.parser} extraction will work better for this site's structure`,
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Parser testing error:", e);
+        // Continue with normal diagnosis if testing fails
+      }
+    }
+
+    return diagnosis;
   }
 }
 
@@ -1073,6 +1177,32 @@ async function applyLLMAction(storeId: string, action: string): Promise<{ succes
       }
 
     default:
+      // Handle dynamic parser switching (switch_to_html, switch_to_schema_org, switch_to_llm)
+      if (action.startsWith("switch_to_")) {
+        try {
+          const newParser = action.replace("switch_to_", "");
+          console.log(`DEBUG: Switching ${storeId} to ${newParser} parser`);
+
+          // Update parser strategy
+          const patchRes = await fetch(`${apiUrl}/api/v1/admin/sources/${storeId}?parser_strategy=${newParser}`, {
+            method: "PATCH",
+          });
+          if (!patchRes.ok) throw new Error(await patchRes.text());
+
+          // Trigger re-ingestion with new parser
+          const reingestRes = await fetch(`${apiUrl}/api/v1/admin/sources/${storeId}/reingest`, {
+            method: "POST",
+          });
+          if (!reingestRes.ok) throw new Error(await reingestRes.text());
+
+          return {
+            success: true,
+            message: `Switched to ${newParser} parser and queued re-ingestion`,
+          };
+        } catch (e: any) {
+          return { success: false, message: e.message };
+        }
+      }
       return { success: false, message: "Unknown action" };
   }
 }
