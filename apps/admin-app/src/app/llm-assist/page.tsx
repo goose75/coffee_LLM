@@ -45,8 +45,12 @@ function LLMAssistContent() {
     const loadStores = async () => {
       try {
         if (storeIds.length === 0) {
-          // Load all failing stores
-          const data = await getSources({ health_status: "failing", page_size: 100 });
+          // Load stores needing healing (unknown, failing, stale status)
+          const data = await getSources({
+            health_status: "unknown",
+            page_size: 50,
+            active_only: true
+          });
           setStores(data.data);
         } else {
           // Load selected stores
@@ -204,7 +208,7 @@ function LLMAssistContent() {
       {/* EMPTY STATE */}
       {stores.length === 0 ? (
         <div className="border border-slate-500/30 rounded bg-slate-500/5 p-12 text-center">
-          <div className="text-slate-500 text-sm">No stores to diagnose. Select stores from the Sources page.</div>
+          <div className="text-slate-500 text-sm">No stores needing assistance found. All stores may be healthy. You can still select specific stores from the Sources page.</div>
         </div>
       ) : (
         <>

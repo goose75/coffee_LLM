@@ -78,6 +78,8 @@ async def list_sources(
         stmt = stmt.where(Store.roaster_flag == True)  # noqa: E712
     if uk_region:
         stmt = stmt.where(Store.uk_region.ilike(f"%{uk_region}%"))
+    if health_status:
+        stmt = stmt.where(Store.health_status == health_status)
     if q:
         stmt = stmt.where(or_(Store.name.ilike(f"%{q}%"), Store.domain.ilike(f"%{q}%")))
 
@@ -124,10 +126,6 @@ async def list_sources(
                 top_error_buckets=dict(sorted(buckets.items(), key=lambda kv: -kv[1])[:5]),
             )
         items.append(item)
-
-    if health_status:
-        items = [i for i in items if i.health_status == health_status]
-        total = len(items)
 
     return PaginatedStores(
         data=items, total=total, page=page, page_size=page_size,
