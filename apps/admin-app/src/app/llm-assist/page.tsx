@@ -44,6 +44,13 @@ function LLMAssistContent() {
   const [diagnosisStartTimes, setDiagnosisStartTimes] = useState<Map<string, number>>(new Map());
   const [diagnosisErrors, setDiagnosisErrors] = useState<Map<string, string>>(new Map());
   const [currentlyDiagnosingId, setCurrentlyDiagnosingId] = useState<string | null>(null);
+  const [autoFixing, setAutoFixing] = useState(false);
+  const [autoFixResults, setAutoFixResults] = useState<Map<string, ActionResult[]>>(new Map());
+
+  // Debug: log when diagnosing changes
+  useEffect(() => {
+    console.log("DEBUG: diagnosing state changed to:", diagnosing);
+  }, [diagnosing]);
 
   // Load stores
   useEffect(() => {
@@ -87,7 +94,12 @@ function LLMAssistContent() {
 
   // Diagnose stores
   const handleDiagnose = useCallback(async () => {
-    if (storesToDisplay.length === 0) return;
+    console.log("DEBUG: handleDiagnose called, storesToDisplay:", storesToDisplay);
+    if (storesToDisplay.length === 0) {
+      console.log("DEBUG: No stores to display, returning early");
+      return;
+    }
+    console.log("DEBUG: Setting diagnosing=true");
     setDiagnosing(true);
     setMessage(null);
 
@@ -125,6 +137,10 @@ function LLMAssistContent() {
       setDiagnosisErrors(errors);
       setCurrentlyDiagnosingId(null);
       setMessage(`Diagnosed ${newDiagnoses.size} of ${storesToDisplay.length} store(s)${errors.size > 0 ? ` (${errors.size} failed)` : ""}`);
+
+      // AUTO-FIX: Apply high-priority recommendations automatically
+      console.log("DEBUG: Starting auto-fix of high-priority recommendations...");
+      await applyAutoFixes(newDiagnoses);
     } catch (e: any) {
       setMessage(`Error: ${e.message}`);
       setCurrentlyDiagnosingId(null);
@@ -132,6 +148,77 @@ function LLMAssistContent() {
       setDiagnosing(false);
     }
   }, [storesToDisplay]);
+
+  // AUTO-FIX: Apply high-priority recommendations automatically
+  const applyAutoFixes = useCallback(async (diagnoses: Map<string, LLMDiagnosis>) => {
+    console.log("DEBUG: applyAutoFixes called with", diagnoses.size, "diagnoses");
+    setAutoFixing(true);
+    setMessage(null);
+
+    const autoFixResults = new Map<string, ActionResult[]>();
+
+    try {
+      for (const [storeId, diagnosis] of diagnoses) {
+        const storeResults: ActionResult[] = [];
+
+        // Find high-priority actions (confidence > 0.8)
+        const highPriorityActions = diagnosis.recommended_actions.filter(
+          a => a.priority === "high" && diagnosis.confidence > 0.8
+        );
+
+        console.log(`DEBUG: Store ${storeId} has ${highPriorityActions.length} high-priority actions`);
+
+        if (highPriorityActions.length > 0) {
+          for (const action of highPriorityActions) {
+            try {
+              console.log(`DEBUG: Auto-applying action: ${action.action}`);
+              const result = await applyLLMAction(storeId, action.action);
+              storeResults.push({
+                action: action.action,
+                success: result.success,
+                message: result.message,
+              });
+            } catch (e: any) {
+              storeResults.push({
+                action: action.action,
+                success: false,
+                message: e.message,
+              });
+            }
+          }
+        }
+
+        if (storeResults.length > 0) {
+          autoFixResults.set(storeId, storeResults);
+        }
+      }
+
+      setAutoFixResults(autoFixResults);
+
+      // Update message with auto-fix summary
+      const totalFixed = Array.from(autoFixResults.values()).reduce(
+        (sum, results) => sum + results.filter(r => r.success).length,
+        0
+      );
+      const totalAttempted = Array.from(autoFixResults.values()).reduce(
+        (sum, results) => sum + results.length,
+        0
+      );
+
+      if (totalAttempted > 0) {
+        setMessage(
+          `✓ Auto-fixed ${totalFixed}/${totalAttempted} high-priority issue(s)${totalFixed < totalAttempted ? ` (${totalAttempted - totalFixed} failed)` : ""}`
+        );
+      }
+
+      console.log("DEBUG: Auto-fix complete");
+    } catch (e: any) {
+      console.error("DEBUG: Auto-fix error:", e);
+      setMessage(`Auto-fix error: ${e.message}`);
+    } finally {
+      setAutoFixing(false);
+    }
+  }, []);
 
   // Apply selected fixes
   const handleApplyFixes = useCallback(async () => {
@@ -314,10 +401,10 @@ function LLMAssistContent() {
           <div className="flex gap-2 mb-8">
             <button
               onClick={handleDiagnose}
-              disabled={diagnosing || diagnoses.size > 0}
+              disabled={diagnosing || autoFixing || diagnoses.size > 0}
               className="px-6 py-3 border border-green-500/50 rounded bg-green-500/10 hover:bg-green-500/20 text-sm uppercase tracking-widest text-green-400 font-mono disabled:opacity-50 transition"
             >
-              {diagnosing ? "Diagnosing..." : diagnoses.size > 0 ? "Diagnosed ✓" : "🔍 Diagnose All"}
+              {autoFixing ? "Auto-fixing..." : diagnosing ? "Diagnosing..." : diagnoses.size > 0 ? "Diagnosed ✓" : "🔍 Diagnose All"}
             </button>
 
             {selectedActions.size > 0 && (
@@ -336,6 +423,16 @@ function LLMAssistContent() {
             >
               ← Back
             </button>
+          </div>
+
+          {/* DEBUG INFO */}
+          <div className="mb-6 p-4 border border-slate-600/30 rounded bg-slate-900/30 text-xs text-slate-500 font-mono">
+            <div>stores.length: {stores.length}</div>
+            <div>storesToDisplay.length: {storesToDisplay.length}</div>
+            <div>diagnosing: {String(diagnosing)}</div>
+            <div>currentlyDiagnosingId: {currentlyDiagnosingId || "null"}</div>
+            <div>diagnoses.size: {diagnoses.size}</div>
+            <div>selectedStoreId: {selectedStoreId || "null"}</div>
           </div>
 
           {/* QUEUE STATUS */}
@@ -516,11 +613,16 @@ function LLMAssistContent() {
                         <div className="space-y-3">
                           {diagnosis.recommended_actions.map((action, i) => {
                             const isSelected = storeActions.has(action.action);
-                            const priorityColor = {
-                              high: "border-red-500/30 bg-red-500/5",
-                              medium: "border-amber-500/30 bg-amber-500/5",
-                              low: "border-blue-500/30 bg-blue-500/5",
-                            }[action.priority];
+                            const wasAutoApplied = autoFixResults.get(store.id)?.some(r => r.action === action.action) ?? false;
+                            const autoApplyResult = autoFixResults.get(store.id)?.find(r => r.action === action.action);
+
+                            const priorityColor = wasAutoApplied
+                              ? "border-green-500/50 bg-green-500/10"
+                              : {
+                                high: "border-red-500/30 bg-red-500/5",
+                                medium: "border-amber-500/30 bg-amber-500/5",
+                                low: "border-blue-500/30 bg-blue-500/5",
+                              }[action.priority];
 
                             const priorityLabel = {
                               high: "HIGH",
@@ -531,22 +633,30 @@ function LLMAssistContent() {
                             return (
                               <div
                                 key={i}
-                                onClick={() => toggleAction(store.id, action.action)}
-                                className={`border rounded p-3 cursor-pointer transition ${priorityColor} ${isSelected ? "ring-2 ring-green-500" : ""}`}
+                                onClick={() => !wasAutoApplied && toggleAction(store.id, action.action)}
+                                className={`border rounded p-3 ${wasAutoApplied ? "" : "cursor-pointer"} transition ${priorityColor} ${isSelected && !wasAutoApplied ? "ring-2 ring-green-500" : ""}`}
                               >
                                 <div className="flex items-start gap-3">
                                   <input
                                     type="checkbox"
-                                    checked={isSelected}
+                                    checked={isSelected || wasAutoApplied}
+                                    disabled={wasAutoApplied}
                                     onChange={() => {}}
                                     className="mt-1"
                                   />
                                   <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-1">
-                                      <span className="text-sm font-mono font-black text-slate-100">{action.action}</span>
-                                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${action.priority === "high" ? "border-red-500 text-red-400" : action.priority === "medium" ? "border-amber-500 text-amber-400" : "border-blue-500 text-blue-400"}`}>
-                                        {priorityLabel}
+                                      <span className="text-sm font-mono font-black text-slate-100">
+                                        {wasAutoApplied && "✓ "}{action.action}
                                       </span>
+                                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${wasAutoApplied ? "border-green-500 text-green-400" : action.priority === "high" ? "border-red-500 text-red-400" : action.priority === "medium" ? "border-amber-500 text-amber-400" : "border-blue-500 text-blue-400"}`}>
+                                        {wasAutoApplied ? "AUTO-APPLIED" : priorityLabel}
+                                      </span>
+                                      {wasAutoApplied && autoApplyResult && (
+                                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${autoApplyResult.success ? "border-green-500 text-green-400" : "border-red-500 text-red-400"}`}>
+                                          {autoApplyResult.success ? "SUCCESS" : "FAILED"}
+                                        </span>
+                                      )}
                                     </div>
                                     <p className="text-xs text-slate-400 mb-2">{action.description}</p>
                                     <p className="text-xs text-slate-600">
@@ -562,10 +672,20 @@ function LLMAssistContent() {
                       </div>
 
                       {/* ACTION RESULTS */}
-                      {storeResults.length > 0 && (
+                      {(storeResults.length > 0 || autoFixResults.has(store.id)) && (
                         <div>
                           <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">📋 Action Results</h4>
                           <div className="space-y-2">
+                            {/* Auto-applied results */}
+                            {autoFixResults.get(store.id)?.map((result, i) => (
+                              <div
+                                key={`auto-${i}`}
+                                className={`p-2 rounded text-xs border ${result.success ? "border-green-500/50 bg-green-500/5 text-green-400" : "border-red-500/50 bg-red-500/5 text-red-400"}`}
+                              >
+                                <span>{result.success ? "✓" : "✕"}</span> [AUTO] {result.action}: {result.message}
+                              </div>
+                            ))}
+                            {/* Manual results */}
                             {storeResults.map((result, i) => (
                               <div
                                 key={i}
@@ -803,17 +923,17 @@ function generateHeuristicDiagnosis(store: Store, detail: StoreDetail): LLMDiagn
   const actions: LLMDiagnosis["recommended_actions"] = [];
 
   // Analyze health status
-  if (store.health_status === "failing") {
-    issues.push("Store extraction is failing");
+  if (store.health_status === "failing" || store.health_status === "unknown") {
+    issues.push("Store extraction needs improvement");
 
     if (!store.last_successful_crawl_at) {
-      issues.push("No successful crawl history");
-      causes.push("Store may be unreachable or blocking requests");
+      issues.push("No successful extraction history");
+      causes.push("Current parser strategy may not be optimized for this site");
       actions.push({
         action: "rescan_parser",
-        description: "Re-run automatic parser detection to identify best extraction method",
+        description: "Test multiple parsers and select best performing one for this site",
         priority: "high",
-        expected_improvement: "May discover working parser strategy (schema.org, LLM)",
+        expected_improvement: "Identifies optimal extraction method (LLM, schema.org, or HTML rules)",
       });
     }
 
@@ -821,10 +941,10 @@ function generateHeuristicDiagnosis(store: Store, detail: StoreDetail): LLMDiagn
       issues.push("No source pages configured");
       causes.push("Cannot find product pages to extract from");
       actions.push({
-        action: "discover_pages",
-        description: "Automatically discover product pages from homepage",
+        action: "reingest_now",
+        description: "Trigger re-ingestion to discover and extract from pages",
         priority: "high",
-        expected_improvement: "Will enable extraction from discovered pages",
+        expected_improvement: "Will attempt to extract from any available pages",
       });
     }
 
@@ -832,16 +952,10 @@ function generateHeuristicDiagnosis(store: Store, detail: StoreDetail): LLMDiagn
       issues.push("HTML extraction may be blocked");
       causes.push("Website detecting and blocking bot requests");
       actions.push({
-        action: "upgrade_headers",
-        description: "Add browser-like headers (Referer, Sec-Fetch-*) to bypass bot detection",
+        action: "reingest_now",
+        description: "Re-attempt ingestion with current configuration",
         priority: "high",
-        expected_improvement: "Will bypass basic bot detection",
-      });
-      actions.push({
-        action: "retry_strategy",
-        description: "Implement exponential backoff retry for 403/429 errors",
-        priority: "high",
-        expected_improvement: "Will recover from temporary blocks",
+        expected_improvement: "Will retry extraction from configured pages",
       });
     }
   }
@@ -870,10 +984,10 @@ function generateHeuristicDiagnosis(store: Store, detail: StoreDetail): LLMDiagn
 
   if (detail.source_pages.length === 0 && store.parser_strategy !== "shopify") {
     actions.push({
-      action: "discover_pages",
-      description: "Discover product pages from homepage",
+      action: "rescan_parser",
+      description: "Re-run parser detection to find correct extraction method",
       priority: "high",
-      expected_improvement: "Will enable extraction to begin",
+      expected_improvement: "May identify alternative parser that works better",
     });
   }
 
