@@ -43,6 +43,7 @@ function LLMAssistContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [diagnosisStartTimes, setDiagnosisStartTimes] = useState<Map<string, number>>(new Map());
   const [diagnosisErrors, setDiagnosisErrors] = useState<Map<string, string>>(new Map());
+  const [currentlyDiagnosingId, setCurrentlyDiagnosingId] = useState<string | null>(null);
 
   // Load stores
   useEffect(() => {
@@ -73,6 +74,17 @@ function LLMAssistContent() {
     loadStores();
   }, [storeIds]);
 
+  // Filter stores based on search query
+  const filteredStores = stores.filter(s =>
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.domain.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Get stores to display
+  const storesToDisplay = selectedStoreId
+    ? filteredStores.filter(s => s.id === selectedStoreId)
+    : filteredStores;
+
   // Diagnose stores
   const handleDiagnose = useCallback(async () => {
     if (storesToDisplay.length === 0) return;
@@ -87,6 +99,9 @@ function LLMAssistContent() {
 
       for (const store of storesToDisplay) {
         try {
+          // Mark this store as currently being diagnosed
+          setCurrentlyDiagnosingId(store.id);
+
           // Mark diagnosis start time
           startTimes.set(store.id, Date.now());
           setDiagnosisStartTimes(new Map(startTimes));
@@ -108,9 +123,11 @@ function LLMAssistContent() {
 
       setDiagnoses(newDiagnoses);
       setDiagnosisErrors(errors);
+      setCurrentlyDiagnosingId(null);
       setMessage(`Diagnosed ${newDiagnoses.size} of ${storesToDisplay.length} store(s)${errors.size > 0 ? ` (${errors.size} failed)` : ""}`);
     } catch (e: any) {
       setMessage(`Error: ${e.message}`);
+      setCurrentlyDiagnosingId(null);
     } finally {
       setDiagnosing(false);
     }
@@ -193,17 +210,6 @@ function LLMAssistContent() {
     }
     setSelectedActions(new Map(selectedActions));
   };
-
-  // Filter stores based on search query
-  const filteredStores = stores.filter(s =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.domain.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Get stores to display
-  const storesToDisplay = selectedStoreId
-    ? filteredStores.filter(s => s.id === selectedStoreId)
-    : filteredStores;
 
   if (loading) {
     return (
@@ -331,6 +337,93 @@ function LLMAssistContent() {
               ← Back
             </button>
           </div>
+
+          {/* QUEUE STATUS */}
+          {diagnosing && (
+            <div className="border border-cyan-500/30 rounded bg-cyan-500/5 p-6 mb-8">
+              <div className="text-sm font-black uppercase tracking-widest text-cyan-400 mb-4">
+                📋 Diagnosis Queue Status
+              </div>
+
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <div className="border border-cyan-500/30 rounded p-3 bg-cyan-500/10">
+                  <div className="text-2xl font-black text-cyan-400">{storesToDisplay.length}</div>
+                  <div className="text-xs text-cyan-600 uppercase tracking-widest mt-1">Total Queued</div>
+                </div>
+                <div className="border border-blue-500/30 rounded p-3 bg-blue-500/10">
+                  <div className="text-2xl font-black text-blue-400">
+                    {storesToDisplay.filter(s => diagnoses.has(s.id)).length}
+                  </div>
+                  <div className="text-xs text-blue-600 uppercase tracking-widest mt-1">Completed</div>
+                </div>
+                <div className="border border-amber-500/30 rounded p-3 bg-amber-500/10">
+                  <div className="text-2xl font-black text-amber-400">
+                    {currentlyDiagnosingId ? 1 : 0}
+                  </div>
+                  <div className="text-xs text-amber-600 uppercase tracking-widest mt-1">In Progress</div>
+                </div>
+                <div className="border border-green-500/30 rounded p-3 bg-green-500/10">
+                  <div className="text-2xl font-black text-green-400">
+                    {storesToDisplay.filter(s => !diagnoses.has(s.id) && s.id !== currentlyDiagnosingId).length}
+                  </div>
+                  <div className="text-xs text-green-600 uppercase tracking-widest mt-1">Pending</div>
+                </div>
+              </div>
+
+              {/* Currently Diagnosing */}
+              {currentlyDiagnosingId && (
+                <div className="mb-4">
+                  <div className="text-xs uppercase tracking-widest text-slate-400 mb-2">Currently Diagnosing</div>
+                  {storesToDisplay.find(s => s.id === currentlyDiagnosingId) && (
+                    <div className="border border-amber-500/50 rounded p-4 bg-amber-500/10">
+                      <div className="flex items-center gap-3">
+                        <div className="inline-flex gap-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "0s" }} />
+                          <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "0.2s" }} />
+                          <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "0.4s" }} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-black text-amber-400">
+                            {storesToDisplay.find(s => s.id === currentlyDiagnosingId)?.name}
+                          </div>
+                          <div className="text-xs text-amber-300 mt-1">
+                            {storesToDisplay.find(s => s.id === currentlyDiagnosingId)?.domain}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Next in Queue */}
+              {storesToDisplay.filter(s => !diagnoses.has(s.id) && s.id !== currentlyDiagnosingId).length > 0 && (
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-slate-400 mb-2">
+                    Next in Queue (Up to 3)
+                  </div>
+                  <div className="space-y-2">
+                    {storesToDisplay
+                      .filter(s => !diagnoses.has(s.id) && s.id !== currentlyDiagnosingId)
+                      .slice(0, 3)
+                      .map((store, index) => (
+                        <div key={store.id} className="border border-slate-600 rounded p-3 bg-slate-900/50">
+                          <div className="flex items-center gap-3">
+                            <div className="text-xs font-black text-slate-500 bg-slate-700 rounded-full w-6 h-6 flex items-center justify-center">
+                              {index + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-mono text-slate-300 truncate">{store.name}</div>
+                              <div className="text-xs text-slate-600 truncate">{store.domain}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* DIAGNOSES */}
           <div className="space-y-6">
