@@ -41,6 +41,8 @@ function LLMAssistContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [diagnosisStartTimes, setDiagnosisStartTimes] = useState<Map<string, number>>(new Map());
+  const [diagnosisErrors, setDiagnosisErrors] = useState<Map<string, string>>(new Map());
 
   // Load stores
   useEffect(() => {
@@ -73,34 +75,46 @@ function LLMAssistContent() {
 
   // Diagnose stores
   const handleDiagnose = useCallback(async () => {
-    if (stores.length === 0) return;
+    if (storesToDisplay.length === 0) return;
     setDiagnosing(true);
     setMessage(null);
+
+    const startTimes = new Map<string, number>();
+    const errors = new Map<string, string>();
 
     try {
       const newDiagnoses = new Map<string, LLMDiagnosis>();
 
-      for (const store of stores) {
+      for (const store of storesToDisplay) {
         try {
+          // Mark diagnosis start time
+          startTimes.set(store.id, Date.now());
+          setDiagnosisStartTimes(new Map(startTimes));
+
           // Get detailed store info
           const detail = await getSource(store.id);
 
           // Generate LLM diagnosis prompt
           const diagnosis = await generateLLMDiagnosis(store, detail);
           newDiagnoses.set(store.id, diagnosis);
-        } catch (e) {
+
+          // Clear error for this store if it was previously errored
+          errors.delete(store.id);
+        } catch (e: any) {
           console.error(`Failed to diagnose ${store.name}:`, e);
+          errors.set(store.id, e.message || "Diagnosis failed");
         }
       }
 
       setDiagnoses(newDiagnoses);
-      setMessage(`Diagnosed ${newDiagnoses.size} store(s)`);
+      setDiagnosisErrors(errors);
+      setMessage(`Diagnosed ${newDiagnoses.size} of ${storesToDisplay.length} store(s)${errors.size > 0 ? ` (${errors.size} failed)` : ""}`);
     } catch (e: any) {
       setMessage(`Error: ${e.message}`);
     } finally {
       setDiagnosing(false);
     }
-  }, [stores]);
+  }, [storesToDisplay]);
 
   // Apply selected fixes
   const handleApplyFixes = useCallback(async () => {
@@ -352,10 +366,20 @@ function LLMAssistContent() {
                     </div>
                   </div>
 
-                  {!diagnosis ? (
-                    <div className="p-6 text-slate-500 text-sm">Waiting for diagnosis...</div>
-                  ) : (
-                    <div className="p-6 space-y-6">
+                  <>
+                    <div className="px-6 pt-6">
+                      <DiagnosisStatus
+                        storeId={store.id}
+                        storeName={store.name}
+                        diagnosis={diagnosis}
+                        diagnosing={diagnosing}
+                        error={diagnosisErrors.get(store.id)}
+                        startTime={diagnosisStartTimes.get(store.id)}
+                      />
+                    </div>
+
+                    {diagnosis && (
+                    <div className="p-6 space-y-6 border-t border-slate-700/50">
                       {/* CURRENT ISSUES */}
                       <div>
                         <h4 className="text-sm font-black text-red-400 uppercase tracking-widest mb-3">🚨 Current Issues</h4>
@@ -461,7 +485,8 @@ function LLMAssistContent() {
                         </div>
                       )}
                     </div>
-                  )}
+                    )}
+                  </>
                 </div>
               );
               })
@@ -469,6 +494,108 @@ function LLMAssistContent() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Helper Components
+// ============================================================================
+
+function DiagnosisStatus({
+  storeId,
+  storeName,
+  diagnosis,
+  diagnosing,
+  error,
+  startTime,
+}: {
+  storeId: string;
+  storeName: string;
+  diagnosis: LLMDiagnosis | undefined;
+  diagnosing: boolean;
+  error?: string;
+  startTime?: number;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!diagnosing || !startTime) return;
+
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [diagnosing, startTime]);
+
+  if (error) {
+    return (
+      <div className="p-6 border-l-4 border-red-500 bg-red-500/10 rounded">
+        <div className="flex items-start gap-3">
+          <span className="text-red-400 text-xl mt-0.5">✗</span>
+          <div className="flex-1">
+            <div className="text-sm font-black text-red-400 uppercase tracking-widest">Diagnosis Failed</div>
+            <div className="text-xs text-red-300 mt-2">{error}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (diagnosing && startTime) {
+    return (
+      <div className="p-6 border-l-4 border-cyan-500 bg-cyan-500/10 rounded">
+        <div className="flex items-start gap-3">
+          <div className="inline-flex gap-1 mt-0.5">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: "0s" }} />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: "0.2s" }} />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: "0.4s" }} />
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-black text-cyan-400 uppercase tracking-widest">
+              Diagnosing... {elapsed}s
+            </div>
+            <div className="text-xs text-cyan-300 mt-1">
+              Analyzing store configuration with Ollama LLM
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (diagnosis) {
+    return (
+      <div className="p-6 border-l-4 border-green-500 bg-green-500/10 rounded">
+        <div className="flex items-start gap-3">
+          <span className="text-green-400 text-xl mt-0.5">✓</span>
+          <div className="flex-1">
+            <div className="text-sm font-black text-green-400 uppercase tracking-widest">
+              Diagnosis Complete ({elapsed}s)
+            </div>
+            <div className="text-xs text-green-300 mt-1">
+              Confidence: {(diagnosis.confidence * 100).toFixed(0)}% • Found {diagnosis.recommended_actions.length} recommended action(s)
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 border-l-4 border-amber-500 bg-amber-500/10 rounded">
+      <div className="flex items-start gap-3">
+        <span className="text-amber-400 text-xl mt-0.5">⏱</span>
+        <div className="flex-1">
+          <div className="text-sm font-black text-amber-400 uppercase tracking-widest">
+            Ready to Diagnose
+          </div>
+          <div className="text-xs text-amber-300 mt-1">
+            Click "🔍 Diagnose All" button above to start LLM analysis
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
