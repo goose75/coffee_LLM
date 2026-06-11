@@ -39,6 +39,8 @@ function LLMAssistContent() {
   const [fixing, setFixing] = useState(false);
   const [selectedActions, setSelectedActions] = useState<Map<string, Set<string>>>(new Map());
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Load stores
   useEffect(() => {
@@ -178,6 +180,17 @@ function LLMAssistContent() {
     setSelectedActions(new Map(selectedActions));
   };
 
+  // Filter stores based on search query
+  const filteredStores = stores.filter(s =>
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.domain.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Get stores to display
+  const storesToDisplay = selectedStoreId
+    ? filteredStores.filter(s => s.id === selectedStoreId)
+    : filteredStores;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-mono flex items-center justify-center">
@@ -212,14 +225,59 @@ function LLMAssistContent() {
         </div>
       ) : (
         <>
+          {/* STORE SELECTOR */}
+          <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs uppercase tracking-widest text-slate-400 mb-2">Search Stores</label>
+              <input
+                type="text"
+                placeholder="Search by name or domain..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-600 rounded bg-slate-900 text-slate-100 text-sm focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs uppercase tracking-widest text-slate-400 mb-2">Select Store</label>
+              <select
+                value={selectedStoreId || ""}
+                onChange={(e) => setSelectedStoreId(e.target.value || null)}
+                className="w-full px-3 py-2 border border-slate-600 rounded bg-slate-900 text-slate-100 text-sm focus:outline-none focus:border-cyan-500"
+              >
+                <option value="">All Stores ({filteredStores.length})</option>
+                {filteredStores.map(store => (
+                  <option key={store.id} value={store.id}>
+                    {store.name} ({store.domain})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedStoreId(null);
+                }}
+                className="w-full px-3 py-2 border border-slate-600 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-300 text-sm uppercase tracking-widest transition"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
           {/* STATS */}
           <div className="grid grid-cols-4 gap-4 mb-8">
             <div className="border border-cyan-500/30 rounded bg-cyan-500/5 p-4">
-              <div className="text-sm font-black text-cyan-400">{stores.length}</div>
-              <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">Stores</div>
+              <div className="text-sm font-black text-cyan-400">{storesToDisplay.length}</div>
+              <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">Showing</div>
+              {storesToDisplay.length !== stores.length && (
+                <div className="text-xs text-slate-600 mt-1">of {stores.length} total</div>
+              )}
             </div>
             <div className="border border-amber-500/30 rounded bg-amber-500/5 p-4">
-              <div className="text-sm font-black text-amber-400">{diagnoses.size}</div>
+              <div className="text-sm font-black text-amber-400">
+                {storesToDisplay.filter(s => diagnoses.has(s.id)).length}
+              </div>
               <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">Diagnosed</div>
             </div>
             <div className="border border-blue-500/30 rounded bg-blue-500/5 p-4">
@@ -262,7 +320,12 @@ function LLMAssistContent() {
 
           {/* DIAGNOSES */}
           <div className="space-y-6">
-            {stores.map((store) => {
+            {storesToDisplay.length === 0 && searchQuery ? (
+              <div className="border border-slate-500/30 rounded bg-slate-500/5 p-6 text-center">
+                <div className="text-slate-500 text-sm">No stores match your search: "{searchQuery}"</div>
+              </div>
+            ) : (
+              storesToDisplay.map((store) => {
               const diagnosis = diagnoses.get(store.id);
               const storeResults = results.get(store.id) || [];
               const storeActions = selectedActions.get(store.id) || new Set();
@@ -401,7 +464,8 @@ function LLMAssistContent() {
                   )}
                 </div>
               );
-            })}
+              })
+            )}
           </div>
         </>
       )}
