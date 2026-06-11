@@ -17,8 +17,10 @@ class Settings(BaseSettings):
 
     # ── Database ─────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://coffee:coffee@localhost:5432/coffee_platform"
-    DATABASE_POOL_SIZE: int = 10
-    DATABASE_MAX_OVERFLOW: int = 20
+    DATABASE_POOL_SIZE: int = 20            # Increased from 10 to reduce pool exhaustion
+    DATABASE_MAX_OVERFLOW: int = 40         # Increased from 20 to handle spikes
+    DATABASE_POOL_RECYCLE: int = 3600       # Recycle connections after 1 hour (prevent stale connections)
+    DATABASE_POOL_PRE_PING: bool = True     # Test connection before use (catch stale connections)
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
