@@ -13,6 +13,7 @@ from app.models.resolution import CanonicalMatch, NormalisationMapping
 from app.models.ingestion_run import IngestionRun
 from app.models.flavour import FlavourTaxonomy, BeanFlavourTag
 from app.models.assistant import AssistantLog
+from app.models.healing_log import HealingLog
 
 __all__ = [
     "Store",
@@ -28,4 +29,5 @@ __all__ = [
     "FlavourTaxonomy",
     "BeanFlavourTag",
     "AssistantLog",
+    "HealingLog",
 ]

@@ -13,8 +13,8 @@ const PROCESS_COLORS: Record<string, string> = {
   anaerobic: "#8b6bab", wet_hulled: "#5a7fa8", carbonic_maceration: "#a85a7f",
 };
 
-function TasteWheel({ profile }: { profile: TasteProfile }) {
-  if (!profile.has_structured_tags || profile.families.length === 0) return <LegacyWheel notes={profile.raw_notes} />;
+function TasteWheel({ profile }: { profile: TasteProfile | null | undefined }) {
+  if (!profile || !profile.has_structured_tags || !profile.families || profile.families.length === 0) return <LegacyWheel notes={profile?.raw_notes} />;
   const cx = 100, cy = 100, r = 68, n = profile.families.length;
   const maxW = Math.max(...profile.families.map(f => f.weight), 1);
   const segs = profile.families.map((f, i) => {
@@ -35,7 +35,7 @@ function TasteWheel({ profile }: { profile: TasteProfile }) {
   );
 }
 
-function LegacyWheel({ notes }: { notes: string[] }) {
+function LegacyWheel({ notes }: { notes: string[] | null | undefined }) {
   const CATS = [
     {label:"Floral",col:"#c084c0",kw:["jasmine","rose","elderflower","hibiscus","floral","lavender"]},
     {label:"Fruity",col:"#e05c3a",kw:["lemon","bergamot","citrus","grapefruit","orange","tropical","mango","passionfruit","cherry","peach","strawberry","blackcurrant","red fruit"]},
@@ -47,9 +47,10 @@ function LegacyWheel({ notes }: { notes: string[] }) {
     {label:"Ferm.",col:"#8b6bab",kw:["wine","whisky","vinegar","yoghurt","funky"]},
   ];
   const cx=100,cy=100,r=68;
+  const notesList = notes || [];
   const segs=CATS.map((c,i)=>{
     const angle=(i*360)/CATS.length;
-    const mc=c.kw.filter(k=>notes.some(n=>n.includes(k)||k.includes(n))).length;
+    const mc=c.kw.filter(k=>notesList.some(n=>n.includes(k)||k.includes(n))).length;
     const hasM=mc>0;
     const radius=hasM?r*0.35+(mc/c.kw.length)*r*0.62:r*0.18;
     const rad=(angle-90)*Math.PI/180;

@@ -62,6 +62,7 @@ export interface Coffee {
   store_count?: number;
   newest_listing_at?: string | null;
   listings?: StoreListing[];
+  discount_percent?: number | null;
 }
 
 export interface Roaster {
@@ -112,10 +113,34 @@ export async function getNewReleases(params: Record<string, string | number | un
   return apiFetch<Paginated<Coffee>>(`/new-releases${p.toString() ? `?${p}` : ""}`);
 }
 
+// ── Phase 1: Price Intelligence Endpoints ──────────────────────────────────────
+
+export async function getDeals(params: Record<string, string | number | undefined> = {}): Promise<Coffee[]> {
+  const p = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); });
+  return apiFetch<Coffee[]>(`/coffees/deals${p.toString() ? `?${p}` : ""}`);
+}
+
+export async function getTrendingCoffees(params: Record<string, string | number | undefined> = {}): Promise<Paginated<Coffee>> {
+  const p = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); });
+  return apiFetch<Paginated<Coffee>>(`/coffees/trending${p.toString() ? `?${p}` : ""}`);
+}
+
+export async function getPriceChangeInfo(coffeeId: string, days: number = 7): Promise<{
+  old_price: number | null;
+  current_price: number | null;
+  change_amount: number | null;
+  change_percent: number | null;
+  days: number;
+}> {
+  return apiFetch(`/coffees/${coffeeId}/price-change-info?days=${days}`);
+}
+
 // ── Mock data for development (API not yet live) ──────────────────────────────
 
 
-// ── Price intelligence types ──────────────────────────────────────────────────
+// ── Price intelligence types ──────────────────────────────────────────────
 
 export interface PricePoint {
   recorded_at: string;
@@ -185,7 +210,7 @@ export interface PriceSummaryStats {
   median_per_100g: number | null;
 }
 
-// ── Taste intelligence types ──────────────────────────────────────────────────
+// ── Taste intelligence types ──────────────────────────────────────────────
 
 export interface TaggedNote {
   raw_note: string;
@@ -235,7 +260,7 @@ export async function getMarketAverages(): Promise<MarketAverages> {
   return apiFetch<MarketAverages>("/market/averages");
 }
 
-// ── Price + taste fetch functions ─────────────────────────────────────────────
+// ── Price + taste fetch functions ─────────────────────────────────────────
 
 export async function getPriceHistory(coffeeId: string, days = 90): Promise<BeanPriceHistory> {
   return apiFetch<BeanPriceHistory>(`/coffees/${coffeeId}/price-history?days=${days}`);
@@ -253,6 +278,16 @@ export async function getTasteProfile(coffeeId: string): Promise<TasteProfile> {
   return apiFetch<TasteProfile>(`/coffees/${coffeeId}/taste-profile`);
 }
 
-export async function getSimilarCoffees(coffeeId: string, limit = 4): Promise<SimilarCoffee[]> {
-  return apiFetch<SimilarCoffee[]>(`/coffees/${coffeeId}/similar?limit=${limit}`);
+export async function getSimilarCoffees(coffeeId: string, limit = 6): Promise<Coffee[]> {
+  return apiFetch<Coffee[]>(`/coffees/${coffeeId}/similar?limit=${limit}`);
+}
+
+export async function getFilterOptions() {
+  return apiFetch<{
+    origins: string[];
+    regions: string[];
+    roasts: string[];
+    processes: string[];
+    varietals: string[];
+  }>("/coffees/filters/options");
 }

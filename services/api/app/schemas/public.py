@@ -87,6 +87,12 @@ class CoffeePublic(BaseModel):
     min_price_per_100g_gbp: float | None = None
     # ISO-8601 timestamp of the most recent listing (used by new-releases feed)
     newest_listing_at: str | None = None
+    # Price discount percentage (used in deals feed)
+    discount_percent: float | None = None
+    # Similarity score (0-1) for similar coffees endpoint
+    similarity_score: float | None = None
+    # Shared flavor families for similar coffees endpoint
+    shared_families: list[str] = Field(default_factory=list)
 
 
 class CoffeeDetailPublic(CoffeePublic):

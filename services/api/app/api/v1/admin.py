@@ -1728,11 +1728,11 @@ async def auto_match_new_listings(
 
             # Try to match each listing
             for listing in unmatched_listings:
-                outcome = await service.match_single_listing(listing)
-                if outcome == "auto_accepted":
+                decision = await service.match_listing(listing)
+                if decision.outcome == "auto_accepted":
                     auto_accepted += 1
                     matched_count += 1
-                elif outcome == "review_queued":
+                elif decision.outcome == "review_queued":
                     pending += 1
                     matched_count += 1
 

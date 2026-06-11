@@ -24,12 +24,12 @@ export default function Nav() {
 
   const links = [
     { href: "/coffees", label: "Browse" },
+    { href: "/collections", label: "Collections" },
+    { href: "/origins-explorer", label: "Origins" },
+    { href: "/brew-guides", label: "Brew Guides" },
     { href: "/flavour-atlas", label: "Flavour Atlas" },
-    { href: "/origins", label: "Origins" },
-    { href: "/origins", label: "Origins" },
     { href: "/roasters", label: "Roasters" },
     { href: "/new-releases", label: "New releases" },
-    { href: "/methodology", label: "Methodology" },
   ];
 
   return (

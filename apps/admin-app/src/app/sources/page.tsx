@@ -1,465 +1,468 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { getSources, rescanSource, deleteSource, triggerIngest, importSeed, triggerReingestionAll, type Store, type SourceFilters } from "@/lib/api";
-import { Badge, DataTable, SkeletonRows, PageHeader, Pagination, EmptyState, ErrorBanner, FilterBar, FilterSearch, FilterSelect, Btn } from "@/components/ui";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { getSources, getIngestionRuns, rescanSource, triggerReingestionAll, type Store, type SourceFilters, type IngestionRun } from "@/lib/api";
 
-function fmtAge(iso: string | null, freqH: number): string {
-  if (!iso) return "Never";
-  const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
-  if (h < 1) return "< 1h";
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
+// ============================================================================
+// STATUS BADGE - Health status visual indicator
+// ============================================================================
+function HealthBadge({ status }: { status: string }) {
+  const statusConfig = {
+    healthy: { color: "bg-green-500/20 border-green-500 text-green-400", icon: "✓" },
+    degraded: { color: "bg-amber-500/20 border-amber-500 text-amber-400", icon: "⚠" },
+    stale: { color: "bg-amber-500/20 border-amber-500 text-amber-400", icon: "⏱" },
+    failing: { color: "bg-red-500/20 border-red-500 text-red-400", icon: "✕" },
+    no_pipeline: { color: "bg-slate-500/20 border-slate-500 text-slate-400", icon: "?" },
+    unknown: { color: "bg-slate-500/20 border-slate-500 text-slate-400", icon: "?" },
+    inactive: { color: "bg-slate-600/20 border-slate-600 text-slate-500", icon: "—" },
+  };
+
+  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.unknown;
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-mono ${config.color}`}>
+      <span>{config.icon}</span>
+      <span className="uppercase tracking-widest">{status}</span>
+    </span>
+  );
 }
 
-interface EditingStrategy {
-  [key: string]: string;
+// ============================================================================
+// PROGRESS BAR - Visual indicator of ingestion progress
+// ============================================================================
+function ProgressBar({ records_created, records_updated, error_count, max = 100 }: { records_created: number; records_updated: number; error_count: number; max?: number }) {
+  const total = records_created + records_updated + error_count;
+  const created_pct = (records_created / (total || max)) * 100;
+  const updated_pct = (records_updated / (total || max)) * 100;
+  const error_pct = (error_count / (total || max)) * 100;
+
+  return (
+    <div className="flex gap-1 h-1 rounded-full overflow-hidden bg-slate-800">
+      {created_pct > 0 && <div className="bg-green-500" style={{ width: `${created_pct}%` }} />}
+      {updated_pct > 0 && <div className="bg-blue-500" style={{ width: `${updated_pct}%` }} />}
+      {error_pct > 0 && <div className="bg-red-500" style={{ width: `${error_pct}%` }} />}
+    </div>
+  );
 }
 
-type RecommendedAction = "detect" | "reingest" | "activate";
-
-function getRecommendedAction(store: Store): RecommendedAction {
-  if (!store.active_flag) return "activate";
-  if (store.health_status === "no_pipeline" || store.health_status === "unknown") return "detect";
-  return "reingest";
-}
-
+// ============================================================================
+// MAIN SOURCES PAGE
+// ============================================================================
 export default function SourcesPage() {
   const [stores, setStores] = useState<Store[]>([]);
+  const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState<SourceFilters>({ active_only: true });
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterStrategy, setFilterStrategy] = useState<string>("");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [actioning, setActioning] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [editingStrategy, setEditingStrategy] = useState<EditingStrategy>({});
+  const [message, setMessage] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sortBy, setSortBy] = useState<"name" | "status" | "updated">("name");
 
+  // Load data
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
-      const data = await getSources({ ...filters, page, page_size: 200 });
-      setStores(data.data);
-      setTotal(data.total);
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
-  }, [filters, page]);
+      const filters: SourceFilters = {
+        page,
+        page_size: 100,
+        q: search || undefined,
+        health_status: filterStatus || undefined,
+        parser_strategy: filterStrategy || undefined,
+        active_only: false,
+      };
 
-  useEffect(() => { setPage(1); }, [filters]);
-  useEffect(() => { load(); }, [load]);
+      const [sourcesData, runsData] = await Promise.all([
+        getSources(filters),
+        getIngestionRuns({ page_size: 50 }),
+      ]);
 
-  const handleRescan = async (id: string, domain: string) => {
-    setActioning(id);
-    try {
-      const r = await rescanSource(id);
-      setBanner(`Rescanned ${domain} → ${r.parser_strategy} (${r.reachable ? "reachable" : "unreachable"})`);
-      await load();
-    } catch (e: any) { setError(e.message); }
-    finally { setActioning(null); }
-  };
+      setStores(sourcesData.data);
+      setTotal(sourcesData.total);
+      setRuns(runsData.data);
+    } catch (e) {
+      console.error("Failed to load sources:", e);
+      setMessage("Failed to load sources");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, filterStatus, filterStrategy]);
 
-  const handleReingest = async (id: string, domain: string) => {
-    setActioning(`reingest-${id}`);
-    try {
-      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/admin/sources/${id}/reingest`, { method: 'POST' });
-      if (!r.ok) throw new Error(await r.text());
-      setBanner(`Re-ingestion queued for ${domain}`);
-    } catch (e: any) { setError(e.message); }
-    finally { setActioning(null); }
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const handleSeed = async () => {
-    setActioning("seed");
-    try {
-      const r = await importSeed();
-      setBanner(`Seed import: ${r.inserted} inserted, ${r.updated} updated, ${r.unreachable} unreachable`);
-      await load();
-    } catch (e: any) { setError(e.message); }
-    finally { setActioning(null); }
-  };
-
-  const handleStrategyEdit = async (storeId: string, newStrategy: string) => {
-    setActioning(`edit-strategy-${storeId}`);
-    try {
-      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/admin/sources/${storeId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parser_strategy: newStrategy })
+  // Sort stores
+  const sortedStores = useMemo(() => {
+    const copy = [...stores];
+    if (sortBy === "name") {
+      copy.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortBy === "status") {
+      const statusOrder = { healthy: 0, degraded: 1, stale: 2, failing: 3, no_pipeline: 4, unknown: 5, inactive: 6 };
+      copy.sort((a, b) => {
+        const aOrder = statusOrder[a.health_status as keyof typeof statusOrder] ?? 99;
+        const bOrder = statusOrder[b.health_status as keyof typeof statusOrder] ?? 99;
+        return aOrder - bOrder;
       });
-      if (!r.ok) throw new Error(await r.text());
-      setBanner(`Parser strategy updated to ${newStrategy}`);
-      setEditingStrategy(e => {
-        const copy = { ...e };
-        delete copy[storeId];
-        return copy;
+    } else if (sortBy === "updated") {
+      copy.sort((a, b) => {
+        const aTime = a.last_successful_crawl_at ? new Date(a.last_successful_crawl_at).getTime() : 0;
+        const bTime = b.last_successful_crawl_at ? new Date(b.last_successful_crawl_at).getTime() : 0;
+        return bTime - aTime;
       });
-      await load();
-    } catch (e: any) { setError(e.message); }
-    finally { setActioning(null); }
-  };
+    }
+    return copy;
+  }, [stores, sortBy]);
 
-  const handleBulkAction = async (action: RecommendedAction, targetStores: Store[]) => {
-    if (targetStores.length === 0) return;
-    setActioning(`bulk-${action}`);
+  // Calculate stats
+  const stats = useMemo(() => {
+    const active = stores.filter(s => s.active_flag).length;
+    const healthy = stores.filter(s => s.health_status === "healthy").length;
+    const stale = stores.filter(s => s.health_status === "stale").length;
+    const failing = stores.filter(s => s.health_status === "failing").length;
+    const no_pipeline = stores.filter(s => s.health_status === "no_pipeline").length;
+    return { active, healthy, stale, failing, no_pipeline };
+  }, [stores]);
+
+  // Bulk actions
+  const handleBulkReingest = async () => {
+    if (selected.size === 0) return;
+    setActioning("bulk-reingest");
     try {
-      let successCount = 0;
-      let errorCount = 0;
-
-      for (const store of targetStores) {
+      let count = 0;
+      for (const storeId of selected) {
         try {
-          if (action === "detect") {
-            await rescanSource(store.id);
-            successCount++;
-          } else if (action === "reingest") {
-            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/admin/sources/${store.id}/reingest`, { method: 'POST' });
-            if (r.ok) successCount++;
-            else errorCount++;
-          } else if (action === "activate") {
-            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/admin/sources/${store.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ active_flag: true })
-            });
-            if (r.ok) successCount++;
-            else errorCount++;
-          }
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/admin/sources/${storeId}/reingest`, {
+            method: 'POST',
+          });
+          count++;
         } catch (e) {
-          errorCount++;
+          console.error("Reingest failed for", storeId, e);
         }
       }
-
-      const actionLabel = action === "detect" ? "Auto-detect" : action === "reingest" ? "Re-ingest" : "Activate";
-      setBanner(`${actionLabel}: ${successCount} started${errorCount > 0 ? `, ${errorCount} failed` : ""}`);
+      setMessage(`Re-ingestion queued for ${count} store(s)`);
+      setSelected(new Set());
       await load();
-    } catch (e: any) { setError(e.message); }
-    finally { setActioning(null); }
+    } catch (e: any) {
+      setMessage(`Error: ${e.message}`);
+    } finally {
+      setActioning(null);
+    }
   };
 
-  const handleBulkDelete = async (targetStores: Store[]) => {
-    if (targetStores.length === 0) return;
-    const confirmed = window.confirm(`⚠️ Permanently delete ${targetStores.length} roaster(s) and all their data?\n\nThis cannot be undone.`);
-    if (!confirmed) return;
-
-    setActioning("bulk-delete");
+  const handleBulkDetect = async () => {
+    if (selected.size === 0) return;
+    setActioning("bulk-detect");
     try {
-      let successCount = 0;
-      let errorCount = 0;
-
-      for (const store of targetStores) {
+      let count = 0;
+      for (const storeId of selected) {
         try {
-          await deleteSource(store.id);
-          successCount++;
+          await rescanSource(storeId);
+          count++;
         } catch (e) {
-          errorCount++;
+          console.error("Detect failed for", storeId, e);
         }
       }
-
-      setBanner(`Deleted: ${successCount} roaster(s)${errorCount > 0 ? `, ${errorCount} failed` : ""}`);
+      setMessage(`Auto-detect completed for ${count} store(s)`);
+      setSelected(new Set());
       await load();
-    } catch (e: any) { setError(e.message); }
-    finally { setActioning(null); }
+    } catch (e: any) {
+      setMessage(`Error: ${e.message}`);
+    } finally {
+      setActioning(null);
+    }
   };
 
-  const handleDeleteSingle = async (id: string, domain: string) => {
-    const confirmed = window.confirm(`⚠️ Permanently delete "${domain}" and all its data?\n\nThis cannot be undone.`);
-    if (!confirmed) return;
-
-    setActioning(`delete-${id}`);
+  const handleBulkLLMAssist = async () => {
+    if (selected.size === 0) return;
+    setActioning("bulk-llm");
     try {
-      await deleteSource(id);
-      setBanner(`Deleted: ${domain}`);
-      await load();
-    } catch (e: any) { setError(e.message); }
-    finally { setActioning(null); }
+      // Queue for LLM assist - redirect to LLM assist page with selected stores
+      const ids = Array.from(selected).join(",");
+      window.location.href = `/admin/llm-assist?stores=${ids}`;
+    } catch (e: any) {
+      setMessage(`Error: ${e.message}`);
+      setActioning(null);
+    }
   };
 
-  const setFilter = (k: keyof SourceFilters, v: unknown) => setFilters(f => ({ ...f, [k]: v || undefined }));
+  const toggleSelect = (storeId: string) => {
+    const newSelected = new Set(selected);
+    if (newSelected.has(storeId)) {
+      newSelected.delete(storeId);
+    } else {
+      newSelected.add(storeId);
+    }
+    setSelected(newSelected);
+  };
 
-  // Group stores by recommended action
-  const detectStores = stores.filter(s => getRecommendedAction(s) === "detect");
-  const reingestStores = stores.filter(s => getRecommendedAction(s) === "reingest");
-  const activateStores = stores.filter(s => getRecommendedAction(s) === "activate");
+  const toggleSelectAll = () => {
+    if (selected.size === sortedStores.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(sortedStores.map(s => s.id)));
+    }
+  };
 
-  const renderStoreTable = (title: string, action: RecommendedAction, storeList: Store[], actionLabel: string, actionLabelBulk: string) => {
-    if (storeList.length === 0) return null;
+  const filteredCount = sortedStores.length;
+  const selectedCount = selected.size;
 
-    // For unknown sources, show both auto-detect and delete buttons
-    const unknownStores = action === "detect" ? storeList.filter(s => s.health_status === "unknown") : [];
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-mono">
+      {/* HEADER */}
+      <div className="mb-8">
+        <h1 className="text-4xl font-black text-cyan-400 mb-2" style={{ textShadow: "0 0 20px rgba(34, 211, 238, 0.5)" }}>
+          🏪 SOURCES
+        </h1>
+        <p className="text-xs text-slate-500 uppercase tracking-widest">Manage {total} roasters and retailers</p>
+      </div>
 
-    return (
-      <div key={action} className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-neutral-100">
-            {title} <span className="text-xs text-neutral-500">({storeList.length})</span>
-          </h2>
-          <div className="flex gap-2">
-            <Btn
-              onClick={() => handleBulkAction(action, storeList)}
-              disabled={actioning === `bulk-${action}`}
-              variant="primary"
-              size="sm"
-            >
-              {actioning === `bulk-${action}` ? "…" : actionLabelBulk}
-            </Btn>
-            {unknownStores.length > 0 && (
-              <Btn
-                onClick={() => handleBulkDelete(unknownStores)}
-                disabled={actioning === "bulk-delete"}
-                variant="default"
-                size="sm"
-                className="text-red-500 border-red-900 hover:border-red-700"
-              >
-                {actioning === "bulk-delete" ? "…" : `Delete ${unknownStores.length}`}
-              </Btn>
-            )}
-          </div>
+      {/* STATS BAR */}
+      <div className="grid grid-cols-5 gap-4 mb-8">
+        <div className="border border-cyan-500/30 rounded bg-cyan-500/5 p-4">
+          <div className="text-sm font-black text-cyan-400">{stats.active}</div>
+          <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">Active</div>
         </div>
-        <DataTable headers={["Health", "Store / Domain", "Strategy", "Region", "Extraction Status", "Actions"]}>
-          {storeList.flatMap(store => {
-            const isActioning = actioning === store.id || actioning === `reingest-${store.id}` || actioning === `edit-strategy-${store.id}`;
-            const crawlAge = fmtAge(store.last_successful_crawl_at, store.crawl_frequency_hours);
-            const stale = store.last_successful_crawl_at && (Date.now() - new Date(store.last_successful_crawl_at).getTime()) / 3_600_000 > store.crawl_frequency_hours * 2;
-            const lr = store.last_run;
-            const hasErrors = lr != null && lr.error_count > 0;
-            const isOpen = !!expanded[store.id];
-            const isEditingStrategy = !!editingStrategy[store.id];
+        <div className="border border-green-500/30 rounded bg-green-500/5 p-4">
+          <div className="text-sm font-black text-green-400">{stats.healthy}</div>
+          <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">Healthy</div>
+        </div>
+        <div className="border border-amber-500/30 rounded bg-amber-500/5 p-4">
+          <div className="text-sm font-black text-amber-400">{stats.stale}</div>
+          <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">Stale</div>
+        </div>
+        <div className="border border-red-500/30 rounded bg-red-500/5 p-4">
+          <div className="text-sm font-black text-red-400">{stats.failing}</div>
+          <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">Failing</div>
+        </div>
+        <div className="border border-slate-500/30 rounded bg-slate-500/5 p-4">
+          <div className="text-sm font-black text-slate-400">{stats.no_pipeline}</div>
+          <div className="text-xs text-slate-500 uppercase tracking-widest mt-1">No Pipeline</div>
+        </div>
+      </div>
 
-            const rows = [
-              <tr key={store.id} className="border-b border-neutral-800/40 hover:bg-neutral-900/30 transition-colors group">
-                <td className="px-4 py-2.5"><Badge value={store.health_status} /></td>
-                <td className="px-4 py-2.5">
-                  <div className="text-sm text-neutral-200">{store.name}</div>
-                  <div className="text-xs font-mono text-neutral-600">{store.domain}</div>
-                </td>
-                <td className="px-4 py-2.5">
-                  <div className="flex flex-wrap gap-1 items-center">
-                    {isEditingStrategy ? (
-                      <select
-                        value={editingStrategy[store.id]}
-                        onChange={(e) => setEditingStrategy(s => ({ ...s, [store.id]: e.target.value }))}
-                        className="text-xs px-2 py-1 rounded bg-neutral-800 border border-neutral-700 text-neutral-200"
-                        autoFocus
-                      >
-                        <option value="shopify">Shopify</option>
-                        <option value="html">HTML</option>
-                        <option value="schema_org">Schema.org</option>
-                        <option value="llm">LLM</option>
-                        <option value="unknown">Unknown</option>
-                      </select>
-                    ) : (
-                      <button
-                        onClick={() => setEditingStrategy(s => ({ ...s, [store.id]: store.parser_strategy }))}
-                        className="cursor-pointer hover:opacity-70 transition-opacity"
-                        title="Click to edit extraction strategy"
-                      >
-                        <Badge value={store.parser_strategy} />
-                      </button>
-                    )}
-                    {isEditingStrategy && (
-                      <div className="flex gap-1">
-                        <Btn size="xs" variant="primary" onClick={() => handleStrategyEdit(store.id, editingStrategy[store.id])} disabled={!!actioning}>
-                          Save
-                        </Btn>
-                        <Btn size="xs" onClick={() => setEditingStrategy(s => {
-                          const copy = { ...s };
-                          delete copy[store.id];
-                          return copy;
-                        })} disabled={!!actioning}>
-                          Cancel
-                        </Btn>
-                      </div>
-                    )}
-                    {store.roaster_flag && <Badge value="roaster" label="roaster" />}
-                  </div>
-                </td>
-                <td className="px-4 py-2.5 text-xs text-neutral-500">{store.uk_region ?? "—"}</td>
-                <td className="px-4 py-2.5 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className={stale ? "text-amber-500" : "text-neutral-500"}>{crawlAge}</span>
-                    {lr && (
-                      <span className="text-[10px] text-neutral-600">
-                        {lr.records_seen > 0 && <span>· {lr.records_seen} products</span>}
-                        {lr.error_count > 0 && <span className="text-rose-400 ml-1">· {lr.error_count} errors</span>}
-                        {lr.warning_count > 0 && <span className="text-amber-500 ml-1">· {lr.warning_count} warnings</span>}
-                      </span>
-                    )}
-                    {hasErrors && (
-                      <button
-                        onClick={() => setExpanded(e => ({ ...e, [store.id]: !e[store.id] }))}
-                        className="text-[10px] text-neutral-500 hover:text-neutral-200 underline"
-                      >{isOpen ? "hide errors" : "show errors"}</button>
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-2.5 text-right">
-                  <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <a href={store.homepage_url} target="_blank" rel="noopener" title="Visit website"
-                      className="text-[11px] text-neutral-600 hover:text-neutral-300 px-2 py-1 rounded border border-neutral-800 hover:border-neutral-600 transition-colors">↗</a>
-                    {action === "detect" && (
-                      <>
-                        <Btn size="xs" onClick={() => handleRescan(store.id, store.domain)} disabled={isActioning}>
-                          {actioning === store.id ? "…" : "Detect"}
-                        </Btn>
-                        {store.health_status === "unknown" && (
-                          <Btn
-                            size="xs"
-                            onClick={() => handleDeleteSingle(store.id, store.domain)}
-                            disabled={isActioning || actioning === `delete-${store.id}`}
-                            className="text-red-500 hover:text-red-400"
-                          >
-                            {actioning === `delete-${store.id}` ? "…" : "Delete"}
-                          </Btn>
-                        )}
-                      </>
-                    )}
-                    {action === "reingest" && (
-                      <Btn size="xs" variant="primary" onClick={() => handleReingest(store.id, store.domain)} disabled={isActioning}>
-                        {actioning === `reingest-${store.id}` ? "…" : "Re-ingest"}
-                      </Btn>
-                    )}
-                    {action === "activate" && (
-                      <Btn size="xs" variant="primary" disabled={isActioning}>
-                        Activate
-                      </Btn>
-                    )}
-                  </div>
+      {/* MESSAGE */}
+      {message && (
+        <div className="mb-6 p-4 border border-green-500/50 rounded bg-green-500/5 text-sm text-green-400">
+          {message}
+        </div>
+      )}
+
+      {/* CONTROLS */}
+      <div className="mb-6 space-y-4">
+        {/* Filters */}
+        <div className="flex gap-4 flex-wrap">
+          <input
+            type="text"
+            placeholder="Search stores..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="px-3 py-2 border border-cyan-500/30 rounded bg-cyan-500/5 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-400"
+          />
+
+          <select
+            value={filterStatus}
+            onChange={(e) => {
+              setFilterStatus(e.target.value);
+              setPage(1);
+            }}
+            className="px-3 py-2 border border-cyan-500/30 rounded bg-cyan-500/5 text-sm text-slate-300 focus:outline-none focus:border-cyan-400"
+          >
+            <option value="">All Status</option>
+            <option value="healthy">Healthy</option>
+            <option value="stale">Stale</option>
+            <option value="failing">Failing</option>
+            <option value="no_pipeline">No Pipeline</option>
+          </select>
+
+          <select
+            value={filterStrategy}
+            onChange={(e) => {
+              setFilterStrategy(e.target.value);
+              setPage(1);
+            }}
+            className="px-3 py-2 border border-cyan-500/30 rounded bg-cyan-500/5 text-sm text-slate-300 focus:outline-none focus:border-cyan-400"
+          >
+            <option value="">All Parsers</option>
+            <option value="shopify">Shopify</option>
+            <option value="html">HTML</option>
+            <option value="schema_org">Schema.org</option>
+            <option value="llm">LLM</option>
+          </select>
+
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="px-3 py-2 border border-cyan-500/30 rounded bg-cyan-500/5 text-sm text-slate-300 focus:outline-none focus:border-cyan-400 ml-auto"
+          >
+            <option value="name">Sort by Name</option>
+            <option value="status">Sort by Status</option>
+            <option value="updated">Sort by Updated</option>
+          </select>
+        </div>
+
+        {/* Bulk Actions */}
+        {selectedCount > 0 && (
+          <div className="flex gap-2 items-center p-4 border border-amber-500/30 rounded bg-amber-500/5">
+            <span className="text-sm font-mono text-amber-400">{selectedCount} selected</span>
+            <button
+              onClick={handleBulkReingest}
+              disabled={actioning === "bulk-reingest"}
+              className="px-3 py-1 text-xs border border-cyan-500/50 rounded bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 disabled:opacity-50 transition"
+            >
+              🔄 Reingest
+            </button>
+            <button
+              onClick={handleBulkDetect}
+              disabled={actioning === "bulk-detect"}
+              className="px-3 py-1 text-xs border border-blue-500/50 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 disabled:opacity-50 transition"
+            >
+              🔍 Auto-Detect
+            </button>
+            <button
+              onClick={handleBulkLLMAssist}
+              disabled={actioning === "bulk-llm"}
+              className="px-3 py-1 text-xs border border-green-500/50 rounded bg-green-500/10 hover:bg-green-500/20 text-green-400 disabled:opacity-50 transition"
+            >
+              🤖 LLM Assist
+            </button>
+            <button
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-1 text-xs border border-slate-500/50 rounded bg-slate-500/10 hover:bg-slate-500/20 text-slate-400 transition ml-auto"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* STORES TABLE */}
+      <div className="border border-cyan-500/20 rounded bg-slate-900/50 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-cyan-500/20 bg-cyan-500/5">
+              <th className="px-4 py-3 text-left">
+                <input
+                  type="checkbox"
+                  checked={selectedCount === filteredCount && filteredCount > 0}
+                  onChange={toggleSelectAll}
+                  className="cursor-pointer"
+                />
+              </th>
+              <th className="px-4 py-3 text-left text-xs uppercase tracking-widest text-slate-400">Store</th>
+              <th className="px-4 py-3 text-left text-xs uppercase tracking-widest text-slate-400">Status</th>
+              <th className="px-4 py-3 text-left text-xs uppercase tracking-widest text-slate-400">Parser</th>
+              <th className="px-4 py-3 text-left text-xs uppercase tracking-widest text-slate-400">Last Run</th>
+              <th className="px-4 py-3 text-left text-xs uppercase tracking-widest text-slate-400">Progress</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                  Loading...
                 </td>
               </tr>
-            ];
+            ) : sortedStores.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                  No stores found
+                </td>
+              </tr>
+            ) : (
+              sortedStores.map((store) => {
+                const isSelected = selected.has(store.id);
+                const lastRun = store.last_run;
 
-            if (isOpen && lr && lr.error_count > 0) {
-              rows.push(
-                <tr key={`${store.id}-errors`} className="bg-neutral-950/60 border-b border-neutral-800/40">
-                  <td colSpan={6} className="px-6 py-4">
-                    <div className="space-y-3">
-                      <div className="text-[11px] uppercase tracking-wider text-neutral-600">
-                        {lr.status.toUpperCase()} · {new Date(lr.started_at).toLocaleString()} · {lr.error_count} errors {lr.warning_count > 0 && `· ${lr.warning_count} warnings`}
+                return (
+                  <tr
+                    key={store.id}
+                    className={`border-b border-slate-800 hover:bg-slate-800/50 transition ${isSelected ? "bg-cyan-500/10" : ""}`}
+                  >
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(store.id)}
+                        className="cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>
+                        <div className="font-mono text-slate-100">{store.name}</div>
+                        <div className="text-xs text-slate-600">{store.domain}</div>
                       </div>
-
-                      {lr.error_count > 0 && (
-                        <div className="space-y-2">
-                          <div className="text-xs font-semibold text-rose-400">Error Types:</div>
-                          <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto">
-                            {Object.keys(lr.top_error_buckets || {}).length > 0 ? (
-                              Object.entries(lr.top_error_buckets).map(([msg, count]) => (
-                                <div key={msg} className="flex items-start gap-2 text-xs">
-                                  <span className="font-mono text-rose-400 flex-shrink-0">{count}×</span>
-                                  <span className="text-neutral-300 break-all">{msg}</span>
-                                </div>
-                              ))
-                            ) : lr.top_errors && lr.top_errors.length > 0 ? (
-                              lr.top_errors.map((err, i) => (
-                                <div key={i} className="text-xs text-neutral-300">{err}</div>
-                              ))
-                            ) : (
-                              <div className="text-xs text-neutral-500">No error details available.</div>
-                            )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <HealthBadge status={store.health_status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs font-mono bg-slate-800/50 px-2 py-1 rounded text-slate-300">
+                        {store.parser_strategy}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-xs">
+                        {lastRun ? (
+                          <>
+                            <div className="text-slate-400">{lastRun.status}</div>
+                            <div className="text-slate-600 mt-1">
+                              {new Date(lastRun.started_at).toLocaleString()}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-slate-600">Never</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {lastRun && (
+                        <div>
+                          <ProgressBar
+                            records_created={lastRun.records_created}
+                            records_updated={lastRun.records_updated}
+                            error_count={lastRun.error_count}
+                          />
+                          <div className="text-[10px] text-slate-600 mt-1">
+                            {lastRun.records_created}✓ {lastRun.records_updated}↑ {lastRun.error_count}✕
                           </div>
                         </div>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            }
-
-            return rows;
-          })}
-        </DataTable>
-      </div>
-    );
-  };
-
-  return (
-    <div className="p-6 max-w-7xl">
-      <PageHeader
-        title="Source Inventory"
-        subtitle="UK coffee roasters grouped by recommended action."
-        actions={
-          <div className="flex gap-2">
-            {total === 0 && (
-              <Btn onClick={handleSeed} disabled={actioning === "seed"} variant="default">
-                {actioning === "seed" ? "Importing…" : "Import seed CSV"}
-              </Btn>
+                    </td>
+                  </tr>
+                );
+              })
             )}
-          </div>
-        }
-      />
+          </tbody>
+        </table>
+      </div>
 
-      {banner && (
-        <div className="mb-4 px-4 py-2.5 bg-emerald-900/20 border border-emerald-800/50 rounded text-sm text-emerald-400 flex items-center justify-between">
-          {banner}
-          <button onClick={() => setBanner(null)} className="text-emerald-700 hover:text-emerald-400">×</button>
-        </div>
-      )}
-      {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
-
-      <FilterBar>
-        <FilterSearch value={filters.q ?? ""} onChange={v => setFilter("q", v)} placeholder="Search by name or domain…" />
-        <FilterSelect value={filters.parser_strategy ?? ""} onChange={v => setFilter("parser_strategy", v)} placeholder="All extraction strategies"
-          options={[
-            { value: "shopify", label: "Shopify API" },
-            { value: "html", label: "HTML/DOM" },
-            { value: "schema_org", label: "Schema.org" },
-            { value: "llm", label: "LLM" },
-            { value: "unknown", label: "Unknown" }
-          ]} />
-        <FilterSelect value={filters.health_status ?? ""} onChange={v => setFilter("health_status", v)} placeholder="All health statuses"
-          options={[
-            { value: "healthy", label: "✓ Healthy" },
-            { value: "degraded", label: "⚠ Degraded" },
-            { value: "failing", label: "✗ Failing" },
-            { value: "stale", label: "⏱ Stale" },
-            { value: "no_pipeline", label: "⊗ No Pipeline" },
-            { value: "inactive", label: "⊗ Inactive" },
-            { value: "unknown", label: "? Unknown" }
-          ]} />
-        <FilterSelect value={filters.uk_region ?? ""} onChange={v => setFilter("uk_region", v)} placeholder="All regions"
-          options={["London","South West","Yorkshire","Midlands","Scotland","Wales","East of England"].map(v => ({ value: v, label: v }))} />
-        <label title="Show only verified roaster sources" className="flex items-center gap-2 text-xs text-neutral-500 cursor-pointer select-none">
-          <input type="checkbox" checked={!!filters.roaster_only} onChange={e => setFilter("roaster_only", e.target.checked)}
-            className="accent-amber-500" />
-          Roasters only
-        </label>
-        <span className="ml-auto text-xs text-neutral-600">{total} sources</span>
-      </FilterBar>
-
-      {loading ? (
-        <div className="space-y-6">
-          <div>
-            <div className="h-6 bg-neutral-800 rounded w-48 mb-4" />
-            <DataTable headers={["Health", "Store / Domain", "Strategy", "Region", "Extraction Status", "Actions"]}>
-              <SkeletonRows cols={6} />
-            </DataTable>
-          </div>
-        </div>
-      ) : stores.length === 0 ? (
-        <EmptyState message="No sources configured. Import the seed CSV to get started." action={<Btn onClick={handleSeed} variant="primary">Import seed CSV</Btn>} />
-      ) : (
-        <div className="space-y-8">
-          {renderStoreTable(
-            "🔍 Auto-detect Strategy",
-            "detect",
-            detectStores,
-            "Detect",
-            "Auto-detect All"
-          )}
-          {renderStoreTable(
-            "♻️ Re-ingest",
-            "reingest",
-            reingestStores,
-            "Re-ingest",
-            "Re-ingest All"
-          )}
-          {renderStoreTable(
-            "✓ Reactivate",
-            "activate",
-            activateStores,
-            "Activate",
-            "Activate All"
-          )}
+      {/* PAGINATION */}
+      {total > 100 && (
+        <div className="mt-6 flex justify-center gap-2">
+          <button
+            onClick={() => setPage(Math.max(1, page - 1))}
+            disabled={page === 1}
+            className="px-4 py-2 border border-cyan-500/30 rounded text-sm text-cyan-400 disabled:opacity-50"
+          >
+            ← Previous
+          </button>
+          <span className="px-4 py-2 text-sm text-slate-500">
+            Page {page} of {Math.ceil(total / 100)}
+          </span>
+          <button
+            onClick={() => setPage(page + 1)}
+            disabled={page >= Math.ceil(total / 100)}
+            className="px-4 py-2 border border-cyan-500/30 rounded text-sm text-cyan-400 disabled:opacity-50"
+          >
+            Next →
+          </button>
         </div>
       )}
     </div>

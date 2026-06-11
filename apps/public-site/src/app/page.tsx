@@ -10,16 +10,21 @@
  *
  * Structure:
  *   1. Hero — one strong statement + smart search
- *   2. Flavour Atlas preview — the centrepiece interaction teaser
- *   3. New releases — horizontal scroll, editorial card treatment
- *   4. Origin highlights — three featured origins with flavour strips
- *   5. Roaster strip — compact but dignified
- *   6. How it works — three lines, no more
+ *   2. Quick Quiz — find your coffee in 3 questions
+ *   3. Deals — biggest price drops this week
+ *   4. Just Added — trending/new releases
+ *   5. New releases — horizontal scroll, editorial card treatment
+ *   6. Origin highlights — three featured origins with flavour strips
+ *   7. Roaster strip — compact but dignified
+ *   8. How it works — three lines, no more
  */
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { QuickQuizModal } from "@/components/QuickQuizModal";
+import { DealsSection } from "@/components/DealsSection";
+import { TrendingSection } from "@/components/TrendingSection";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -72,6 +77,7 @@ export default function HomePage() {
   const [origins, setOrigins] = useState<OriginSummary[]>([]);
   const [totalCoffees, setTotalCoffees] = useState<number>(0);
   const [totalRoasters, setTotalRoasters] = useState<number>(0);
+  const [quizOpen, setQuizOpen] = useState(false);
 
   useEffect(() => {
     // Fetch in parallel, degrade gracefully
@@ -97,18 +103,27 @@ export default function HomePage() {
     <div className="hp-root">
 
       {/* ── 1. Hero ─────────────────────────────────────────────────────── */}
-      <HeroSection totalCoffees={totalCoffees} totalRoasters={totalRoasters} />
+      <HeroSection totalCoffees={totalCoffees} totalRoasters={totalRoasters} onQuizClick={() => setQuizOpen(true)} />
 
-      {/* ── 3. New releases ─────────────────────────────────────────────── */}
+      {/* ── 2. Quick Quiz Modal ─────────────────────────────────────────── */}
+      <QuickQuizModal isOpen={quizOpen} onClose={() => setQuizOpen(false)} />
+
+      {/* ── 3. Deals Section (Phase 1) ──────────────────────────────────– */}
+      <DealsSection />
+
+      {/* ── 4. Trending Section (Phase 1) ───────────────────────────────── */}
+      <TrendingSection />
+
+      {/* ── 5. New releases ─────────────────────────────────────────────── */}
       {newReleases.length > 0 && <NewReleasesSection coffees={newReleases} />}
 
-      {/* ── 4. Origin highlights ────────────────────────────────────────── */}
+      {/* ── 6. Origin highlights ────────────────────────────────────────── */}
       {origins.length > 0 && <OriginHighlights origins={origins} />}
 
-      {/* ── 5. Roaster strip ────────────────────────────────────────────── */}
+      {/* ── 7. Roaster strip ────────────────────────────────────────────── */}
       {roasters.length > 0 && <RoasterStrip roasters={roasters} total={totalRoasters} />}
 
-      {/* ── 6. How it works ─────────────────────────────────────────────── */}
+      {/* ── 8. How it works ─────────────────────────────────────────────── */}
       <HowItWorks />
 
       <style jsx>{styles}</style>
@@ -118,7 +133,7 @@ export default function HomePage() {
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
 
-function HeroSection({ totalCoffees, totalRoasters }: { totalCoffees: number; totalRoasters: number }) {
+function HeroSection({ totalCoffees, totalRoasters, onQuizClick }: { totalCoffees: number; totalRoasters: number; onQuizClick: () => void }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -202,11 +217,15 @@ function HeroSection({ totalCoffees, totalRoasters }: { totalCoffees: number; to
 
       {/* Quick links */}
       <div className="hero-links">
+        <button className="hero-link hero-link-button" onClick={onQuizClick}>
+          ✨ Take Quiz
+        </button>
         {[
+          { href: "/collections", label: "Collections" },
           { href: "/flavour-atlas", label: "Flavour Atlas" },
-          { href: "/origins", label: "Origins" },
+          { href: "/origins-explorer", label: "Origins" },
+          { href: "/brew-guides", label: "Brew Guides" },
           { href: "/coffees", label: "Browse all" },
-          { href: "/new-releases", label: "New releases" },
         ].map(({ href, label }) => (
           <Link key={href} href={href} className="hero-link">{label}</Link>
         ))}
@@ -598,6 +617,15 @@ const styles = `
     transition: border-color 0.15s, color 0.15s;
   }
   .hero-link:hover { border-color: var(--accent); color: var(--accent); }
+  .hero-link-button {
+    background: none;
+    cursor: pointer;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .hero-link-button:hover {
+    background: rgba(181, 136, 42, 0.05);
+  }
 
   /* ── Flavour Atlas teaser ── */
   .atlas-teaser {

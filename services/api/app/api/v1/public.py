@@ -170,6 +170,153 @@ async def list_coffees(
     return PaginatedCoffees(data=items, total=total, page=page, page_size=page_size, has_next=(page * page_size) < total)
 
 
+# ── PHASE 1: Price Intelligence Endpoints (must come before /{coffee_id}) ──
+
+@router.get("/coffees/deals", response_model=list[CoffeePublic])
+async def get_deals(
+    days: int = Query(7, ge=1, le=30),
+    min_discount_percent: float = Query(10.0, ge=0, le=100),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> list[CoffeePublic]:
+    """
+    Get coffees with biggest price drops in the last N days.
+    Returns coffees sorted by discount percentage (largest first).
+    Optimized: loads all price history in single query to avoid N+1.
+    """
+    from app.models.pricing import PriceHistory
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Get all variants with their current prices
+    stmt = (
+        select(
+            ListingVariant.id,
+            BeanListing.canonical_bean_id,
+            ListingVariant.price_gbp.label('current_price'),
+        )
+        .join(BeanListing)
+        .where(BeanListing.active_flag.is_(True))
+    )
+
+    all_variants = (await db.execute(stmt)).all()
+    variant_ids = [v[0] for v in all_variants]
+
+    if not variant_ids:
+        return []
+
+    # Load ALL price history in ONE query (fixes N+1 problem)
+    history_stmt = (
+        select(PriceHistory)
+        .where(
+            PriceHistory.listing_variant_id.in_(variant_ids),
+            PriceHistory.recorded_at >= cutoff,
+        )
+        .order_by(PriceHistory.listing_variant_id, PriceHistory.recorded_at)
+    )
+    all_history = (await db.execute(history_stmt)).scalars().all()
+
+    # Group price history by variant_id, keeping only oldest price per variant
+    history_by_variant = {}
+    for record in all_history:
+        if record.listing_variant_id not in history_by_variant:
+            history_by_variant[record.listing_variant_id] = record
+
+    # Calculate price changes
+    bean_discounts = {}  # bean_id -> max_discount_percent
+
+    for var_id, bean_id, current_price in all_variants:
+        history = history_by_variant.get(var_id)
+
+        if history:
+            old_price = float(history.price_gbp)  # oldest price in window
+            new_price = float(current_price)
+            if old_price > 0 and new_price < old_price:
+                discount_pct = ((old_price - new_price) / old_price) * 100
+                if discount_pct >= min_discount_percent:
+                    if bean_id not in bean_discounts or discount_pct > bean_discounts[bean_id]:
+                        bean_discounts[bean_id] = discount_pct
+
+    if not bean_discounts:
+        return []
+
+    # Fetch the beans and their aggregates
+    bean_ids = list(bean_discounts.keys())
+    stmt = select(CanonicalBean).where(CanonicalBean.id.in_(bean_ids))
+    beans = (await db.execute(stmt)).scalars().all()
+
+    # Sort by discount percentage
+    sorted_beans = sorted(
+        beans,
+        key=lambda b: bean_discounts[b.id],
+        reverse=True
+    )[:limit]
+
+    result = []
+    for bean in sorted_beans:
+        agg = _coffee_aggregates(bean)
+        item = CoffeePublic.model_validate(bean)
+        item.listing_count = agg["listing_count"]
+        item.store_count = agg["store_count"]
+        item.min_price_gbp = agg["min_price_gbp"]
+        item.max_price_gbp = agg["max_price_gbp"]
+        item.min_price_per_100g_gbp = agg.get("min_price_per_100g_gbp")
+        item.discount_percent = bean_discounts[bean.id]
+        result.append(item)
+
+    return result
+
+
+@router.get("/coffees/trending", response_model=PaginatedCoffees)
+async def get_trending_coffees(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> PaginatedCoffees:
+    """
+    Get trending/newly discovered coffees.
+    Sorted by most recently added beans.
+    """
+    # Get count of unique beans with active listings
+    count_stmt = select(func.count(func.distinct(CanonicalBean.id))).select_from(CanonicalBean).join(BeanListing).where(BeanListing.active_flag.is_(True))
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    # Get all beans with active listings, sorted by first_seen_at (most recent first)
+    stmt = (
+        select(CanonicalBean)
+        .join(BeanListing, BeanListing.canonical_bean_id == CanonicalBean.id)
+        .where(BeanListing.active_flag.is_(True))
+        .options(
+            selectinload(CanonicalBean.bean_listings).selectinload(BeanListing.variants),
+        )
+        .order_by(CanonicalBean.created_at.desc(), CanonicalBean.id)  # Sort by most recently added
+    )
+
+    all_beans = (await db.execute(stmt)).scalars().unique().all()
+
+    # Paginate in memory
+    beans = all_beans[(page - 1) * page_size : page * page_size]
+
+    items = []
+    for bean in beans:
+        agg = _coffee_aggregates(bean)
+        item = CoffeePublic.model_validate(bean)
+        item.listing_count = agg["listing_count"]
+        item.store_count = agg["store_count"]
+        item.min_price_gbp = agg["min_price_gbp"]
+        item.max_price_gbp = agg["max_price_gbp"]
+        item.min_price_per_100g_gbp = agg.get("min_price_per_100g_gbp")
+        items.append(item)
+
+    return PaginatedCoffees(
+        data=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_next=(page * page_size) < total,
+    )
+
+
 @router.get("/coffees/{coffee_id}", response_model=CoffeeDetailPublic)
 async def get_coffee(coffee_id: str, db: AsyncSession = Depends(get_db)) -> CoffeeDetailPublic:
     try:
@@ -205,6 +352,254 @@ async def get_coffee(coffee_id: str, db: AsyncSession = Depends(get_db)) -> Coff
 @router.get("/coffees/{coffee_id}/compare", response_model=CoffeeDetailPublic)
 async def compare_coffee(coffee_id: str, db: AsyncSession = Depends(get_db)) -> CoffeeDetailPublic:
     return await get_coffee(coffee_id, db)
+
+
+@router.get("/coffees/{coffee_id}/similar", response_model=list[CoffeePublic])
+async def get_similar_coffees(
+    coffee_id: str,
+    limit: int = Query(6, ge=1, le=24),
+    db: AsyncSession = Depends(get_db),
+) -> list[CoffeePublic]:
+    """Find similar coffees based on flavor profile and origin."""
+    try:
+        bean_uuid = uuid.UUID(coffee_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID")
+
+    # Get the reference coffee with relationships
+    stmt = select(CanonicalBean).where(CanonicalBean.id == bean_uuid).options(
+        selectinload(CanonicalBean.bean_listings).selectinload(BeanListing.variants),
+    )
+    reference_bean = (await db.execute(stmt)).scalar_one_or_none()
+    if reference_bean is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+
+    # Find similar coffees by:
+    # 1. Same or similar origin country
+    # 2. Overlapping flavor notes
+    # 3. Same roast level or process
+    ref_flavours = set(reference_bean.flavour_notes or [])
+    ref_origin = reference_bean.origin_country or ""
+    ref_roast = reference_bean.roast_level
+    ref_process = reference_bean.process
+
+    # Get all other beans with active listings
+    stmt = (
+        select(CanonicalBean)
+        .join(BeanListing, BeanListing.canonical_bean_id == CanonicalBean.id)
+        .where(
+            BeanListing.active_flag.is_(True),
+            CanonicalBean.id != bean_uuid,  # Exclude self
+        )
+        .options(
+            selectinload(CanonicalBean.bean_listings).selectinload(BeanListing.variants),
+        )
+    )
+
+    all_beans = (await db.execute(stmt)).scalars().unique().all()
+
+    # Score each candidate
+    scored = []
+    for bean in all_beans:
+        score = 0.0
+
+        # Origin match (0-2 points)
+        if bean.origin_country and ref_origin and ref_origin.lower() in bean.origin_country.lower():
+            score += 2.0
+        elif bean.origin_region and reference_bean.origin_region and reference_bean.origin_region.lower() in bean.origin_region.lower():
+            score += 1.0
+
+        # Flavor overlap (0-3 points)
+        bean_flavours = set(bean.flavour_notes or [])
+        flavor_overlap = len(ref_flavours & bean_flavours)
+        score += min(3.0, flavor_overlap * 0.5)
+
+        # Roast level match (0-1 point)
+        if bean.roast_level == ref_roast:
+            score += 1.0
+
+        # Process match (0-1 point)
+        if bean.process == ref_process:
+            score += 1.0
+
+        # Varietal overlap (0-1 point)
+        ref_varietals = set(reference_bean.varietal or [])
+        bean_varietals = set(bean.varietal or [])
+        if ref_varietals & bean_varietals:
+            score += 1.0
+
+        if score > 0:
+            scored.append((bean, score))
+
+    # Sort by score and take top N
+    scored.sort(key=lambda x: x[1], reverse=True)
+    top_scored = scored[:limit]
+
+    # Calculate shared flavor families for each similar coffee
+    def get_shared_families(bean):
+        """Extract flavor families that are shared between reference and candidate beans."""
+        ref_flavours = set(reference_bean.flavour_notes or [])
+        bean_flavours = set(bean.flavour_notes or [])
+        shared_notes = ref_flavours & bean_flavours
+
+        # Map flavor notes to their families (simplified mapping)
+        flavor_to_family = {
+            "jasmine": "floral", "rose": "floral", "elderflower": "floral", "hibiscus": "floral", "lavender": "floral",
+            "lemon": "fruity", "bergamot": "fruity", "citrus": "fruity", "grapefruit": "fruity", "orange": "fruity",
+            "tropical": "fruity", "mango": "fruity", "passionfruit": "fruity", "cherry": "fruity", "peach": "fruity",
+            "strawberry": "fruity", "blackcurrant": "fruity",
+            "honey": "sweet", "caramel": "sweet", "vanilla": "sweet", "brown sugar": "sweet", "candy": "sweet",
+            "toffee": "sweet", "maple": "sweet",
+            "dark chocolate": "chocolate", "milk chocolate": "chocolate", "cocoa": "chocolate", "cacao": "chocolate",
+            "mocha": "chocolate",
+            "almond": "nutty", "hazelnut": "nutty", "walnut": "nutty", "peanut": "nutty",
+            "cinnamon": "spice", "clove": "spice", "cardamom": "spice", "black pepper": "spice", "nutmeg": "spice",
+            "earthy": "earthy", "tobacco": "earthy", "cedar": "earthy", "oak": "earthy", "green tea": "earthy",
+            "black tea": "earthy", "herbal": "earthy",
+            "wine": "fermented", "whisky": "fermented", "vinegar": "fermented", "yoghurt": "fermented", "funky": "fermented",
+        }
+
+        families = set()
+        for note in shared_notes:
+            family = flavor_to_family.get(note.lower())
+            if family:
+                families.add(family)
+        return list(families)
+
+    # Hydrate with aggregates and scores
+    result = []
+    for bean, score in top_scored:
+        agg = _coffee_aggregates(bean)
+        item = CoffeePublic.model_validate(bean)
+        item.listing_count = agg["listing_count"]
+        item.store_count = agg["store_count"]
+        item.min_price_gbp = agg["min_price_gbp"]
+        item.max_price_gbp = agg["max_price_gbp"]
+        item.min_price_per_100g_gbp = agg.get("min_price_per_100g_gbp")
+
+        # Add similarity score and shared families
+        max_score = 8.0  # Maximum possible score (2+3+1+1+1)
+        normalized_score = score / max_score if max_score > 0 else 0.0
+        item.similarity_score = normalized_score
+        item.shared_families = get_shared_families(bean)
+
+        result.append(item)
+
+    return result
+
+
+@router.get("/coffees/{coffee_id}/price-change-info")
+async def get_price_change_info(
+    coffee_id: str,
+    days: int = Query(7, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get price change statistics for a coffee.
+    Returns: old_price (from N days ago), current_price, change_amount, change_percent.
+    """
+    try:
+        bean_uuid = uuid.UUID(coffee_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID")
+
+    bean = (await db.execute(
+        select(CanonicalBean).where(CanonicalBean.id == bean_uuid)
+    )).scalar_one_or_none()
+    if bean is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Get all active variants for this bean
+    from app.models.pricing import PriceHistory
+
+    stmt = (
+        select(ListingVariant)
+        .join(BeanListing)
+        .where(
+            BeanListing.canonical_bean_id == bean_uuid,
+            BeanListing.active_flag.is_(True),
+        )
+    )
+    variants = (await db.execute(stmt)).scalars().all()
+
+    if not variants:
+        return {
+            "old_price": None,
+            "current_price": None,
+            "change_amount": None,
+            "change_percent": None,
+            "days": days,
+        }
+
+    # Get minimum current price
+    current_prices = [float(v.price_gbp) for v in variants]
+    current_min = min(current_prices)
+
+    # Get oldest price in the window
+    variant_ids = [v.id for v in variants]
+    history_stmt = (
+        select(PriceHistory)
+        .where(
+            PriceHistory.listing_variant_id.in_(variant_ids),
+            PriceHistory.recorded_at >= cutoff,
+        )
+        .order_by(PriceHistory.recorded_at)
+    )
+    history = (await db.execute(history_stmt)).scalars().all()
+
+    old_price = None
+    if history:
+        old_price = float(history[0].price_gbp)
+
+    if old_price is None:
+        # No history in window, use current price as old
+        old_price = current_min
+
+    change_amount = old_price - current_min if old_price else None
+    change_percent = (change_amount / old_price * 100) if old_price and old_price > 0 else None
+
+    return {
+        "old_price": old_price,
+        "current_price": current_min,
+        "change_amount": round(change_amount, 2) if change_amount is not None else None,
+        "change_percent": round(change_percent, 1) if change_percent is not None else None,
+        "days": days,
+    }
+
+
+@router.get("/coffees/filters/options")
+async def get_filter_options(db: AsyncSession = Depends(get_db)):
+    """Return all available filter options for advanced search."""
+    stmt = select(CanonicalBean).join(BeanListing).where(BeanListing.active_flag.is_(True)).distinct()
+    all_coffees = (await db.execute(stmt)).scalars().all()
+
+    origins = set()
+    regions = set()
+    roasts = set()
+    processes = set()
+    varietals = set()
+
+    for coffee in all_coffees:
+        if coffee.origin_country:
+            origins.add(coffee.origin_country)
+        if coffee.origin_region:
+            regions.add(coffee.origin_region)
+        if coffee.roast_level:
+            roasts.add(str(coffee.roast_level.value if hasattr(coffee.roast_level, 'value') else coffee.roast_level))
+        if coffee.process:
+            processes.add(str(coffee.process.value if hasattr(coffee.process, 'value') else coffee.process))
+        if coffee.varietal:
+            varietals.update(coffee.varietal)
+
+    return {
+        "origins": sorted(list(origins)),
+        "regions": sorted(list(regions)),
+        "roasts": sorted(list(roasts)),
+        "processes": sorted(list(processes)),
+        "varietals": sorted(list(varietals)),
+    }
 
 
 @router.get("/roasters", response_model=PaginatedRoasters)

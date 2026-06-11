@@ -87,9 +87,10 @@ function SimilarSection({ similar }: { similar: SimilarCoffee[] }) {
 
   // Group coffees by shared flavor families
   const groupedBySimilarity = similar.reduce((acc, coffee) => {
-    const key = coffee.shared_families.sort().join(',');
+    const families = coffee.shared_families || [];
+    const key = families.sort().join(',');
     if (!acc[key]) {
-      acc[key] = { families: coffee.shared_families, coffees: [] };
+      acc[key] = { families: families, coffees: [] };
     }
     acc[key].coffees.push(coffee);
     return acc;
@@ -126,7 +127,7 @@ function SimilarSection({ similar }: { similar: SimilarCoffee[] }) {
                 <div className="flex-shrink-0">
                   <span className="text-base px-3 py-1.5 rounded-full font-semibold"
                     style={{ backgroundColor: "var(--accent-dim)", color: "var(--accent)" }}>
-                    {(s.similarity_score * 100).toFixed(0)}%
+                    {((s.similarity_score ?? 0) * 100).toFixed(0)}%
                   </span>
                 </div>
               </Link>
@@ -144,7 +145,7 @@ function FlavourBars({ profile }: { profile: TasteProfile }) {
   if (!profile.has_structured_tags) {
     return (
       <div className="flex flex-wrap gap-2">
-        {profile.raw_notes.map(n => (
+        {(profile.raw_notes || []).map(n => (
           <span key={n} className="text-sm px-3 py-1.5 rounded-full capitalize"
             style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)", border: "1px solid var(--border-light)" }}>{n}</span>
         ))}
@@ -154,7 +155,7 @@ function FlavourBars({ profile }: { profile: TasteProfile }) {
 
   return (
     <div className="space-y-4">
-      {profile.families.map(f => {
+      {(profile.families || []).map(f => {
         // Calculate intensity based on weight (0-1 scale)
         const intensity = Math.min(f.weight, 1);
         const intensityLabel = intensity >= 0.7 ? "Strong" : intensity >= 0.4 ? "Medium" : "Subtle";
@@ -281,12 +282,12 @@ export default function CoffeeDetailTabs({ coffee: c, history, stats, taste, sim
               )}
 
               {/* Flavor description - Right column */}
-              {taste && taste.raw_notes.length > 0 && (
+              {taste && taste.raw_notes && taste.raw_notes.length > 0 && (
                 <div className="rounded-2xl p-5" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)", flex: "1 1 50%" }}>
                   <div className="text-sm uppercase tracking-wider mb-3 font-semibold" style={{ color: "var(--text)" }}>About this coffee</div>
                   <p className="text-base leading-relaxed" style={{ color: "var(--text)" }}>
                     This coffee features {taste.raw_notes.slice(0, 3).join(", ")} characteristics.
-                    {taste.families.length > 0 && ` The dominant flavor families are ${taste.families.slice(0, 2).map(f => f.family_label.toLowerCase()).join(" and ")}.`}
+                    {taste.families && taste.families.length > 0 && ` The dominant flavor families are ${taste.families.slice(0, 2).map(f => f.family_label.toLowerCase()).join(" and ")}.`}
                     Best enjoyed with pour-over or espresso to fully appreciate the complex flavor profile.
                   </p>
                 </div>

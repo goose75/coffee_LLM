@@ -12,17 +12,13 @@ export const metadata: Metadata = {
 };
 
 const NAV = [
-  { href: "/dashboard",       label: "Dashboard",      icon: "⬡" },
+  { href: "/control-tower",   label: "Control Tower",   icon: "⚡" },
   { href: "/sources",         label: "Sources",         icon: "◈" },
+  { href: "/llm-assist",      label: "LLM Assist",      icon: "🤖" },
   { href: "/ingestion-runs",  label: "Ingestion Runs",  icon: "↻" },
-  { href: "/diagnostics",     label: "Diagnostics",     icon: "⚙" },
-  { href: "/extractions",     label: "Extractions",     icon: "⊞" },
-  { href: "/review/matches",  label: "Match Review",    icon: "⊕" },
-  { href: "/beans",           label: "Canonical Beans", icon: "◉" },
-  { href: "/mappings",        label: "Mappings",        icon: "⇄" },
+  { href: "/review/matches",  label: "Matches",         icon: "⊕" },
+  { href: "/beans",           label: "Beans",           icon: "◉" },
   { href: "/prices",          label: "Prices",          icon: "£" },
-  { href: "/taste/review",    label: "Taste Review",    icon: "◕" },
-  { href: "/assistant",       label: "Assistant Logs",  icon: "✦" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

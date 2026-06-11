@@ -48,6 +48,7 @@ from app.models.store import Store
 from app.services.extraction.payload import ExtractionPayload, ExtractionResult
 from app.services.storage.backend import StorageBackend, compute_hash, get_storage_backend
 from .extractor import HtmlExtractor
+from .product_page_detector import ProductPageDetector
 
 # Type alias for clarity
 ExtractionResultType = ExtractionResult
@@ -279,20 +280,11 @@ class HtmlIngestionPipeline:
 
             log.debug(f"Found {len(urls)} URLs in sitemap")
 
-            # Filter to likely product pages
-            product_patterns = [
-                r"/product[s]?/",
-                r"/shop/",
-                r"/item[s]?/",
-                r"/coffee[s]?/",
-                r"/roast[s]?/",
-                r"/bean[s]?/",
-            ]
-
+            # Filter to likely product pages using improved detector
             product_urls = set()
             for url in urls:
-                # Check if URL matches product patterns
-                if any(re.search(pattern, url, re.IGNORECASE) for pattern in product_patterns):
+                is_product, reason = ProductPageDetector.is_product_page_by_url(url)
+                if is_product:
                     product_urls.add(url)
 
             log.info(
@@ -323,22 +315,12 @@ class HtmlIngestionPipeline:
         Breadth-first crawl from homepage to find product pages.
 
         Uses BFS to crawl up to 50 pages looking for product links.
-        Returns URLs that match product patterns.
+        Uses improved product page detector with both URL patterns and HTML analysis.
         """
         homepage_url = self.store.homepage_url or f"https://{self.store.domain}"
         product_urls = set()
         visited = set()
         queue = [homepage_url]
-
-        # Product link patterns to match
-        product_patterns = [
-            r"/product[s]?/",
-            r"/shop/",
-            r"/item[s]?/",
-            r"/coffee[s]?/",
-            r"/roast[s]?/",
-            r"/bean[s]?/",
-        ]
 
         max_crawl_pages = 50  # Limit crawl depth to avoid excessive requests
 
@@ -363,6 +345,14 @@ class HtmlIngestionPipeline:
                     with urllib.request.urlopen(req, timeout=10) as response:
                         html_bytes = response.read()
 
+                    html_text = html_bytes.decode('utf-8', errors='ignore')
+
+                    # Check if current page is a product page (with HTML analysis)
+                    is_product, reason = ProductPageDetector.is_product_page(url, html_text)
+                    if is_product:
+                        product_urls.add(url)
+                        log.debug(f"Detected product page {url}: {reason}")
+
                     # Parse HTML to find links
                     from html.parser import HTMLParser
 
@@ -378,7 +368,7 @@ class HtmlIngestionPipeline:
                                         self.links.append(value)
 
                     extractor = LinkExtractor()
-                    extractor.feed(html_bytes.decode('utf-8', errors='ignore'))
+                    extractor.feed(html_text)
 
                     # Process discovered links
                     for link in extractor.links:
@@ -393,8 +383,9 @@ class HtmlIngestionPipeline:
                         # Remove fragments and query params for matching
                         clean_url = link.split('#')[0].split('?')[0]
 
-                        # Check if it's a product page
-                        if any(re.search(pattern, clean_url, re.IGNORECASE) for pattern in product_patterns):
+                        # Check if it looks like a product page by URL (quick check)
+                        is_product_by_url, _ = ProductPageDetector.is_product_page_by_url(clean_url)
+                        if is_product_by_url:
                             product_urls.add(link)
 
                         # Add to queue if it's from same domain and not yet visited
@@ -514,12 +505,17 @@ class HtmlIngestionPipeline:
         # Headers that mimic a real browser request
         headers = {
             "User-Agent": self._user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": url.rsplit('/', 1)[0] + "/",  # Add referer to appear more like real browser
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
             "DNT": "1",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
+            "Cache-Control": "max-age=0",
         }
 
         last_error = None
@@ -530,18 +526,15 @@ class HtmlIngestionPipeline:
                     return response.read()
             except urllib.error.HTTPError as exc:
                 last_error = f"HTTP {exc.code} from {url}: {exc.reason}"
-                # 429 (Too Many Requests) and 503 (Service Unavailable) are transient
-                if exc.code in (429, 503) and attempt < retries - 1:
-                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                    log.warning(f"Rate limited ({exc.code}), retrying in {wait_time}s: {url}")
+                # 429 (Too Many Requests), 503 (Service Unavailable), 403 (Forbidden), 401 (Unauthorized) - all can be transient
+                if exc.code in (403, 401, 429, 503) and attempt < retries - 1:
+                    wait_time = (2 ** attempt) + (attempt * 1)  # Increased backoff: 1s, 3s, 7s
+                    log.warning(f"HTTP {exc.code} (likely bot detection), retrying in {wait_time}s: {url}")
                     time.sleep(wait_time)
                     continue
-                # 403/401 are permanent auth issues, don't retry
-                if exc.code in (403, 401):
-                    raise Exception(last_error) from exc
                 # Other HTTP errors: retry once
                 if attempt < retries - 1:
-                    wait_time = 1
+                    wait_time = 2
                     log.warning(f"HTTP error {exc.code}, retrying in {wait_time}s: {url}")
                     time.sleep(wait_time)
                     continue
