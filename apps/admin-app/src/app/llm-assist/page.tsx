@@ -136,10 +136,15 @@ function LLMAssistContent() {
       let diagnosedCount = 0;
 
       for (const store of storesToDisplay) {
-        // Skip if already completed in autonomous mode
+        // Skip if already completed AND store is actually healthy
         if (completedStores.has(store.id)) {
-          console.log(`DEBUG: Skipping ${store.name} - already completed`);
-          continue;
+          // Only skip if the store's status actually improved (is now healthy)
+          if (store.health_status === "healthy") {
+            console.log(`DEBUG: Skipping ${store.name} - already completed and healthy`);
+            continue;
+          } else {
+            console.log(`DEBUG: Retrying ${store.name} - completed but status is ${store.health_status}, not healthy`);
+          }
         }
 
         try {
@@ -172,6 +177,8 @@ function LLMAssistContent() {
               a => a.priority === "high" && diagnosis.confidence > 0.8
             );
 
+            let allActionsFailed = true;
+
             if (highPriorityActions.length > 0) {
               for (const action of highPriorityActions) {
                 try {
@@ -182,6 +189,10 @@ function LLMAssistContent() {
                     success: result.success,
                     message: result.message,
                   });
+
+                  if (result.success) {
+                    allActionsFailed = false;
+                  }
                 } catch (e: any) {
                   storeResults.push({
                     action: action.action,
@@ -197,23 +208,49 @@ function LLMAssistContent() {
               setAutoFixResults(prev => new Map(prev).set(store.id, storeResults));
             }
 
-            // Mark this store as completed
-            const newCompleted = new Set(completedStores);
-            newCompleted.add(store.id);
-            setCompletedStores(newCompleted);
-            setProcessedCount(newCompleted.size);
+            // ONLY mark as completed if at least one action succeeded AND we verify the change persisted
+            if (!allActionsFailed && storeResults.length > 0) {
+              console.log(`DEBUG: Verifying changes for ${store.name}...`);
+
+              // Wait a moment for database writes to complete
+              await new Promise(resolve => setTimeout(resolve, 1000));
+
+              try {
+                // Re-fetch the store to verify changes persisted
+                const updatedStore = await getSource(store.id);
+
+                // Check if status improved (moved away from problem states)
+                const initialStatus = store.health_status;
+                const newStatus = updatedStore.health_status;
+                const hasNewData = (updatedStore.last_run?.records_created || 0) > 0;
+
+                console.log(`DEBUG: Store status: ${initialStatus} → ${newStatus}, has data: ${hasNewData}`);
+
+                // Only mark as completed if something actually changed
+                if (newStatus !== initialStatus || hasNewData) {
+                  const newCompleted = new Set(completedStores);
+                  newCompleted.add(store.id);
+                  setCompletedStores(newCompleted);
+                  setProcessedCount(newCompleted.size);
+
+                  console.log(`DEBUG: Verified - marking ${store.name} as completed`);
+                } else {
+                  console.log(`DEBUG: No changes verified for ${store.name} - will retry later`);
+                }
+              } catch (e: any) {
+                console.error(`DEBUG: Failed to verify changes for ${store.name}:`, e);
+                // Don't mark as completed if we can't verify
+              }
+            } else if (allActionsFailed || storeResults.length === 0) {
+              console.log(`DEBUG: All actions failed for ${store.name} - will retry later`);
+            }
           }
         } catch (e: any) {
           console.error(`Failed to diagnose ${store.name}:`, e);
           errors.set(store.id, e.message || "Diagnosis failed");
 
-          // Mark as completed even on error (so we move to next store)
-          if (autonomousMode) {
-            const newCompleted = new Set(completedStores);
-            newCompleted.add(store.id);
-            setCompletedStores(newCompleted);
-            setProcessedCount(newCompleted.size);
-          }
+          // Don't mark as completed on error - the issue remains and should be retried
+          // When retrying later, this store won't be in completedStores so it will be processed again
         }
       }
 
@@ -1159,7 +1196,11 @@ async function applyLLMAction(storeId: string, action: string): Promise<{ succes
           method: "POST",
         });
         if (!res.ok) throw new Error(await res.text());
-        return { success: true, message: "Re-ingestion queued" };
+
+        // Wait for reingest to complete and check results
+        await waitForIngestCompletion(storeId);
+
+        return { success: true, message: "Re-ingestion completed" };
       } catch (e: any) {
         return { success: false, message: e.message };
       }
@@ -1230,6 +1271,48 @@ async function applyLLMAction(storeId: string, action: string): Promise<{ succes
       }
       return { success: false, message: "Unknown action" };
   }
+}
+
+// ============================================================================
+// Helper: Wait for ingestion to complete and verify beans were created
+// ============================================================================
+async function waitForIngestCompletion(storeId: string): Promise<void> {
+  const maxRetries = 30; // Check for up to 30 seconds
+  const retryInterval = 1000; // Check every 1 second
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      // Fetch the store to get its latest ingestion run
+      const store = await getSource(storeId);
+      const lastRun = store.last_run;
+
+      // Check if ingestion is complete and had results
+      if (lastRun?.status === "completed" || lastRun?.status === "partial") {
+        const recordsCreated = lastRun?.records_created || 0;
+        const recordsUpdated = lastRun?.records_updated || 0;
+
+        console.log(`DEBUG: Ingestion complete. Created: ${recordsCreated}, Updated: ${recordsUpdated}`);
+
+        // Success if any records were created or updated (beans were sourced)
+        if (recordsCreated > 0 || recordsUpdated > 0) {
+          return;
+        }
+
+        // If no records created/updated but ingestion completed, still consider it done
+        // (though not necessarily successful - store will stay in issue state for retry)
+        return;
+      }
+
+      // Ingestion still running
+      console.log(`DEBUG: Waiting for ingestion to complete... (attempt ${i + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, retryInterval));
+    } catch (e) {
+      console.error(`DEBUG: Error checking ingestion status:`, e);
+      await new Promise(r => setTimeout(r, retryInterval));
+    }
+  }
+
+  console.warn(`DEBUG: Ingestion did not complete within timeout`);
 }
 
 // ============================================================================
