@@ -169,7 +169,6 @@ function LLMAssistContent() {
           // Auto-apply fixes immediately for each store (in autonomous mode)
           if (autonomousMode) {
             console.log(`DEBUG: Auto-applying fixes for ${store.name}...`);
-            const autoFixResultsForStore = new Map<string, ActionResult[]>();
             const storeResults: ActionResult[] = [];
 
             // Find high-priority actions (confidence > 0.8)
@@ -204,7 +203,6 @@ function LLMAssistContent() {
             }
 
             if (storeResults.length > 0) {
-              autoFixResultsForStore.set(store.id, storeResults);
               setAutoFixResults(prev => new Map(prev).set(store.id, storeResults));
             }
 
