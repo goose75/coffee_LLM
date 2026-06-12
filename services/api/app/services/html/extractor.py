@@ -25,6 +25,7 @@ from typing import Optional
 from app.services.extraction.schema_org_parser import SchemaOrgParser
 from app.services.extraction.html_parser import HtmlRulesParser
 from app.services.extraction.woocommerce_parser import WooCommerceParser
+from app.services.extraction.browser_extractor import BrowserExtractor
 from app.services.extraction.hybrid_extractor import HybridExtractor
 from app.services.extraction.payload import ExtractionPayload, ExtractionResult as ExtractionResultModel
 from .product_listing_extractor import ProductListingExtractor
@@ -50,6 +51,7 @@ class HtmlExtractor:
         self.schema_org_parser = SchemaOrgParser()
         self.woocommerce_parser = WooCommerceParser()
         self.html_rules_parser = HtmlRulesParser()
+        self.browser_extractor = BrowserExtractor()  # For JavaScript-rendered sites
         self.hybrid_extractor = HybridExtractor(use_ollama=True, use_api_fallback=True)
         self.listing_extractor = ProductListingExtractor()
 
@@ -119,7 +121,7 @@ class HtmlExtractor:
         """
         Extract a single product using the fallback chain.
 
-        Try: schema.org → WooCommerce (if applicable) → HTML rules → Hybrid/LLM
+        Try: schema.org → WooCommerce → HTML rules → Browser (JavaScript) → Hybrid/LLM
 
         Returns:
             List with 0-1 ExtractionResult objects
@@ -179,6 +181,27 @@ class HtmlExtractor:
                     )
         except Exception as exc:
             log.debug(f"HTML rules extraction failed for {url}: {exc}")
+
+        # Try browser extraction for JavaScript-heavy sites (Elementor, SPAs, etc.)
+        best_confidence = max([r.payload.confidence for r in results], default=0.0)
+        if best_confidence < 0.4:
+            try:
+                log.debug(f"Browser extraction for {url} (JavaScript-heavy site detection)")
+                browser_result = self.browser_extractor.extract(html_bytes, url)
+                if browser_result.validation_status in ("valid", "partial"):
+                    if browser_result.payload.confidence >= 0.3:
+                        results.append(browser_result)
+                        log.info(
+                            f"Browser extraction succeeded for {url} "
+                            f"(confidence: {browser_result.payload.confidence:.2f})"
+                        )
+                    else:
+                        log.debug(
+                            f"Browser extraction confidence too low for {url} "
+                            f"({browser_result.payload.confidence:.2f})"
+                        )
+            except Exception as exc:
+                log.debug(f"Browser extraction failed for {url}: {exc}")
 
         # Try hybrid extraction (rules → Ollama local → API LLM) as final fallback
         best_confidence = max([r.payload.confidence for r in results], default=0.0)
