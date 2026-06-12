@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.enums import MappingType, Process, RoastLevel
+from app.models.enums import MappingType, Process, RoastLevel, PageType, ParserStrategy
 from app.models.ingestion_run import IngestionRun
 from app.models.resolution import NormalisationMapping
 from app.models.store import Store
@@ -370,6 +370,78 @@ async def reingest_store(
         "message": f"Re-ingestion queued for {store.domain} ({store.parser_strategy})",
         "store_id": store_id,
         "parser_strategy": store.parser_strategy,
+    }
+
+
+@router.post("/sources/{source_id}/discover-pages")
+async def discover_pages(
+    source_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Discover product pages on a store and add them to source_pages."""
+    # Fetch store
+    try:
+        sid = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid store_id UUID")
+
+    stmt = select(Store).where(Store.id == sid)
+    store = (await db.execute(stmt)).scalar_one_or_none()
+    if not store:
+        raise HTTPException(status_code=404, detail=f"Store {source_id} not found")
+
+    async def run_discovery():
+        try:
+            from app.models.source_page import SourcePage
+            from app.services.extraction.source_discovery import discover_source_pages
+            from datetime import datetime
+
+            log.info(f"Discovering pages for {store.domain}...")
+
+            # Run discovery
+            discovered_urls = await discover_source_pages(
+                domain=store.domain,
+                homepage_url=store.homepage_url,
+                max_pages=100
+            )
+
+            # Store discovered pages
+            now = datetime.utcnow()
+
+            for url in discovered_urls:
+                # Check if page already exists
+                existing = (
+                    await db.execute(
+                        select(SourcePage).where(
+                            (SourcePage.store_id == store.id) & (SourcePage.url == url)
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                if not existing:
+                    source_page = SourcePage(
+                        store_id=store.id,
+                        url=url,
+                        page_type=PageType.product,
+                        parser_strategy=store.parser_strategy,
+                        discovered_at=now,
+                    )
+                    db.add(source_page)
+
+            await db.commit()
+            log.info(f"Discovered {len(discovered_urls)} pages for {store.domain}")
+
+        except Exception as e:
+            log.error(f"Discovery error for {store.domain}: {e}")
+            await db.rollback()
+
+    background_tasks.add_task(run_discovery)
+
+    return {
+        "status": "queued",
+        "message": f"Page discovery queued for {store.domain}",
+        "store_id": source_id,
     }
 
 

@@ -1087,10 +1087,16 @@ function generateHeuristicDiagnosis(store: Store, detail: StoreDetail): LLMDiagn
     issues.push("❌ No product pages discovered");
     causes.push("System hasn't found which pages contain products");
     actions.push({
-      action: "reingest_now",
-      description: "Trigger page discovery and crawl homepage for product links",
+      action: "discover_pages",
+      description: "Crawl the site to find product pages",
       priority: "high",
-      expected_improvement: "Will find and catalog product pages on the site",
+      expected_improvement: "Will discover and catalog product pages, enabling extraction",
+    });
+    actions.push({
+      action: "reingest_now",
+      description: "After discovering pages, trigger extraction",
+      priority: "high",
+      expected_improvement: "Will extract products from discovered pages",
     });
   }
   // NEVER SUCCESSFUL: Site extraction has never worked
@@ -1209,7 +1215,11 @@ async function applyLLMAction(storeId: string, action: string): Promise<{ succes
           method: "POST",
         });
         if (!res.ok) throw new Error(await res.text());
-        return { success: true, message: "Page discovery started" };
+
+        // Wait for page discovery to complete
+        await waitForPageDiscoveryCompletion(storeId);
+
+        return { success: true, message: "Page discovery completed" };
       } catch (e: any) {
         return { success: false, message: e.message };
       }
@@ -1269,6 +1279,38 @@ async function applyLLMAction(storeId: string, action: string): Promise<{ succes
       }
       return { success: false, message: "Unknown action" };
   }
+}
+
+// ============================================================================
+// Helper: Wait for page discovery to complete and verify pages were found
+// ============================================================================
+async function waitForPageDiscoveryCompletion(storeId: string): Promise<void> {
+  const maxRetries = 60; // Check for up to 60 seconds (discovery is slower)
+  const retryInterval = 1000; // Check every 1 second
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      // Fetch the store to check if pages were discovered
+      const store = await getSource(storeId);
+      const sourcePageCount = store.source_pages?.length || 0;
+
+      console.log(`DEBUG: Page discovery status - ${sourcePageCount} pages found (attempt ${i + 1}/${maxRetries})`);
+
+      // Success if pages were discovered
+      if (sourcePageCount > 0) {
+        console.log(`DEBUG: Page discovery complete. Found ${sourcePageCount} pages`);
+        return;
+      }
+
+      // Still waiting
+      await new Promise(r => setTimeout(r, retryInterval));
+    } catch (e) {
+      console.error(`DEBUG: Error checking page discovery status:`, e);
+      await new Promise(r => setTimeout(r, retryInterval));
+    }
+  }
+
+  console.warn(`DEBUG: Page discovery did not complete within timeout`);
 }
 
 // ============================================================================
