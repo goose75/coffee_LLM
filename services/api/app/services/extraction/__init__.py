@@ -2,6 +2,7 @@ from app.services.extraction.payload import ExtractionPayload, ExtractionResult,
 from app.services.extraction.base import BaseParser, ParserChain
 from app.services.extraction.schema_org_parser import SchemaOrgParser
 from app.services.extraction.html_parser import HtmlRulesParser
+from app.services.extraction.woocommerce_parser import WooCommerceParser
 from app.services.extraction.llm_parser import LLMParser, clean_page_text
 from app.services.extraction.llm_validator import validate_llm_response, ValidatedLLMResponse
 from app.services.extraction.ollama_parser import OllamaParser, OllamaExtractionResult
@@ -18,6 +19,7 @@ __all__ = [
     "ParserChain",
     "SchemaOrgParser",
     "HtmlRulesParser",
+    "WooCommerceParser",
     "LLMParser",
     "BrowserExtractor",
     "BrowserPool",

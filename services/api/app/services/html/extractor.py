@@ -24,6 +24,7 @@ from typing import Optional
 
 from app.services.extraction.schema_org_parser import SchemaOrgParser
 from app.services.extraction.html_parser import HtmlRulesParser
+from app.services.extraction.woocommerce_parser import WooCommerceParser
 from app.services.extraction.hybrid_extractor import HybridExtractor
 from app.services.extraction.payload import ExtractionPayload, ExtractionResult as ExtractionResultModel
 from .product_listing_extractor import ProductListingExtractor
@@ -47,6 +48,7 @@ class HtmlExtractor:
     def __init__(self):
         """Initialize parsers."""
         self.schema_org_parser = SchemaOrgParser()
+        self.woocommerce_parser = WooCommerceParser()
         self.html_rules_parser = HtmlRulesParser()
         self.hybrid_extractor = HybridExtractor(use_ollama=True, use_api_fallback=True)
         self.listing_extractor = ProductListingExtractor()
@@ -117,7 +119,7 @@ class HtmlExtractor:
         """
         Extract a single product using the fallback chain.
 
-        Try: schema.org → HTML rules → LLM (when available)
+        Try: schema.org → WooCommerce (if applicable) → HTML rules → Hybrid/LLM
 
         Returns:
             List with 0-1 ExtractionResult objects
@@ -142,7 +144,25 @@ class HtmlExtractor:
         except Exception as exc:
             log.debug(f"Schema.org extraction failed for {url}: {exc}")
 
-        # Try HTML rules (best for common platforms like WooCommerce)
+        # Try WooCommerce-specific parser (higher confidence for WooCommerce sites)
+        try:
+            woo_result = self.woocommerce_parser.extract(html_bytes, url)
+            if woo_result.validation_status in ("valid", "partial"):
+                if woo_result.payload.confidence >= 0.3:
+                    results.append(woo_result)
+                    log.debug(
+                        f"WooCommerce extraction succeeded for {url} "
+                        f"(confidence: {woo_result.payload.confidence:.2f})"
+                    )
+                else:
+                    log.debug(
+                        f"WooCommerce confidence too low for {url} "
+                        f"({woo_result.payload.confidence:.2f})"
+                    )
+        except Exception as exc:
+            log.debug(f"WooCommerce extraction failed for {url}: {exc}")
+
+        # Try generic HTML rules (fallback for non-WooCommerce sites)
         try:
             html_result = self.html_rules_parser.extract(html_bytes, url)
             if html_result.validation_status in ("valid", "partial"):
@@ -180,7 +200,7 @@ class HtmlExtractor:
         if not results:
             log.debug(
                 f"All extraction methods failed for {url} "
-                f"(schema.org, html rules, llm)"
+                f"(schema.org, woocommerce, html rules, llm)"
             )
 
         return results
