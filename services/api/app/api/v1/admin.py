@@ -445,6 +445,92 @@ async def discover_pages(
     }
 
 
+@router.post("/sources/{source_id}/test-parsers")
+async def test_parsers(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Test all parsers on a sample page and return ranked results."""
+    # Fetch store
+    try:
+        sid = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid store_id UUID")
+
+    stmt = select(Store).where(Store.id == sid)
+    store = (await db.execute(stmt)).scalar_one_or_none()
+    if not store:
+        raise HTTPException(status_code=404, detail=f"Store {source_id} not found")
+
+    # Fetch a sample source page
+    from app.models.source_page import SourcePage
+    page_stmt = select(SourcePage).where(SourcePage.store_id == store.id).limit(1)
+    sample_page = (await db.execute(page_stmt)).scalar_one_or_none()
+
+    if not sample_page:
+        raise HTTPException(
+            status_code=422,
+            detail="No source pages found for this store. Run discovery first.",
+        )
+
+    # Fetch the page content
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                sample_page.url,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
+                }
+            )
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Failed to fetch sample page: HTTP {response.status_code}",
+                )
+            html_bytes = response.content
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Sample page fetch timeout")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Failed to fetch sample page: {e}")
+
+    # Test all parsers
+    try:
+        from app.services.extraction.parser_testing import test_all_parsers
+
+        scores = await test_all_parsers(html_bytes, sample_page.url)
+
+        # Return results
+        return {
+            "store_id": source_id,
+            "store_name": store.name,
+            "sample_page_url": sample_page.url,
+            "parsers": [
+                {
+                    "name": score.parser_name,
+                    "status": score.status,
+                    "confidence": round(score.confidence, 3),
+                    "fields_extracted": score.fields_extracted,
+                    "has_coffee_name": score.has_coffee_name,
+                    "has_price": score.has_price,
+                    "has_origin": score.has_origin,
+                    "has_process": score.has_process,
+                    "has_roast_level": score.has_roast_level,
+                    "has_varietal": score.has_varietal,
+                    "has_flavour_notes": score.has_flavour_notes,
+                    "total_score": round(score.total_score, 3),
+                }
+                for score in scores
+            ],
+            "best_parser": scores[0].parser_name if scores else None,
+            "best_score": round(scores[0].total_score, 3) if scores else 0,
+        }
+
+    except Exception as e:
+        log.error(f"Parser testing error for {store.domain}: {e}")
+        raise HTTPException(status_code=500, detail=f"Parser testing failed: {e}")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Error Recovery & Learning (Auto-correction)
 # ─────────────────────────────────────────────────────────────────────────────

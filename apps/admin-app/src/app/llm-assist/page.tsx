@@ -1050,35 +1050,43 @@ function generateHeuristicDiagnosis(store: Store, detail: StoreDetail): LLMDiagn
   if (recordsCreated === 0 && !hasErrors && detail.source_pages.length > 0) {
     issues.push("❌ CRITICAL: Silent extraction failure - finding 0 products");
     causes.push("Extraction pipeline is running but returning empty results from pages");
-    causes.push("Possible causes: Bot blocking, empty pages, parser incompatibility");
+    causes.push("Parser mismatch: current parser incompatible with site structure");
 
-    // Try switching parser strategies as primary fix
+    // Primary action: test all parsers to find the best one
+    actions.push({
+      action: "test_parsers",
+      description: "Test all parsers (schema.org, HTML, LLM) on a sample page",
+      priority: "high",
+      expected_improvement: "Identifies which parser works best for this site structure",
+    });
+
+    // Secondary: suggest switch based on current parser
     if (store.parser_strategy === "html") {
       actions.push({
         action: "switch_to_schema_org",
-        description: "Switch from HTML rules to structured data extraction",
-        priority: "high",
-        expected_improvement: "Schema.org extraction works on modern sites with structured markup",
+        description: "Try structured data extraction",
+        priority: "medium",
+        expected_improvement: "May work better for this site's markup",
       });
       actions.push({
         action: "switch_to_llm",
-        description: "Fall back to LLM for intelligent extraction from any site",
-        priority: "high",
-        expected_improvement: "LLM can extract from poorly structured or dynamic sites",
+        description: "Fall back to LLM extraction",
+        priority: "medium",
+        expected_improvement: "Universal fallback for any HTML structure",
       });
     } else if (store.parser_strategy === "shopify") {
       actions.push({
         action: "switch_to_llm",
-        description: "Try LLM extraction as alternative for Shopify sites",
-        priority: "high",
-        expected_improvement: "May handle Shopify site variations that API doesn't",
+        description: "Try LLM as fallback for Shopify sites",
+        priority: "medium",
+        expected_improvement: "May handle site variations better",
       });
     } else if (store.parser_strategy !== "llm") {
       actions.push({
         action: "switch_to_llm",
-        description: "Use LLM as universal extraction fallback",
-        priority: "high",
-        expected_improvement: "LLM can handle any HTML structure",
+        description: "Use LLM as universal fallback",
+        priority: "medium",
+        expected_improvement: "Can extract from any HTML structure",
       });
     }
   }
@@ -1246,6 +1254,42 @@ async function applyLLMAction(storeId: string, action: string): Promise<{ succes
         });
         if (!res.ok) throw new Error(await res.text());
         return { success: true, message: "Retry strategy enabled" };
+      } catch (e: any) {
+        return { success: false, message: e.message };
+      }
+
+    case "test_parsers":
+      try {
+        const res = await fetch(`${apiUrl}/api/v1/admin/sources/${storeId}/test-parsers`, {
+          method: "POST",
+        });
+        if (!res.ok) throw new Error(await res.text());
+
+        const result = await res.json();
+
+        // Always switch to best parser (idempotent if already using it)
+        console.log(`DEBUG: Best parser is ${result.best_parser} (score=${result.best_score})`);
+
+        // Switch parser
+        const switchRes = await fetch(
+          `${apiUrl}/api/v1/admin/sources/${storeId}?parser_strategy=${result.best_parser}`,
+          { method: "PATCH" }
+        );
+        if (!switchRes.ok) throw new Error(await switchRes.text());
+
+        // Trigger re-ingestion with best parser
+        const reingestRes = await fetch(`${apiUrl}/api/v1/admin/sources/${storeId}/reingest`, {
+          method: "POST",
+        });
+        if (!reingestRes.ok) throw new Error(await reingestRes.text());
+
+        // Wait for ingestion to complete
+        await waitForIngestCompletion(storeId);
+
+        return {
+          success: true,
+          message: `Tested parsers: best=${result.best_parser} (score=${result.best_score}). Switched and re-ingested.`,
+        };
       } catch (e: any) {
         return { success: false, message: e.message };
       }
