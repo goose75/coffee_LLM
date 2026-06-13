@@ -445,6 +445,112 @@ async def discover_pages(
     }
 
 
+@router.post("/sources/{source_id}/multi-stage-fallback")
+async def multi_stage_fallback(
+    source_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Run multi-stage fallback chain: try parsers in ranked order until one works.
+
+    For stores with pages but 0 extraction, tries each parser (ranked by quality)
+    and keeps the first one that produces extraction results.
+    """
+    try:
+        sid = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid store_id UUID")
+
+    stmt = select(Store).where(Store.id == sid)
+    store = (await db.execute(stmt)).scalar_one_or_none()
+    if not store:
+        raise HTTPException(status_code=404, detail=f"Store {source_id} not found")
+
+    # Fetch a sample source page for testing
+    from app.models.source_page import SourcePage
+    page_stmt = select(SourcePage).where(SourcePage.store_id == store.id).limit(1)
+    sample_page = (await db.execute(page_stmt)).scalar_one_or_none()
+
+    if not sample_page:
+        raise HTTPException(
+            status_code=422,
+            detail="No source pages found. Run discovery first.",
+        )
+
+    # Test all parsers to get ranking
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                sample_page.url,
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+            )
+            if response.status_code != 200:
+                raise HTTPException(status_code=422, detail=f"Failed to fetch sample page")
+            html_bytes = response.content
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Failed to fetch sample page: {e}")
+
+    # Get parser rankings
+    try:
+        from app.services.extraction.parser_testing import test_all_parsers
+
+        scores = await test_all_parsers(html_bytes, sample_page.url)
+        parser_scores = [
+            {"parser": s.parser_name, "score": s.total_score}
+            for s in scores
+        ]
+    except Exception as e:
+        log.error(f"Parser testing error: {e}")
+        raise HTTPException(status_code=500, detail=f"Parser testing failed: {e}")
+
+    # Run fallback in background
+    async def run_fallback():
+        try:
+            from app.services.extraction.multi_stage_fallback import run_multi_stage_fallback
+
+            # Helper to switch parser and re-ingest
+            async def re_ingest_with_parser(store_id_arg: str, parser_name: str):
+                # Switch parser
+                stmt_update = select(Store).where(Store.id == store_id_arg)
+                s = (await db.execute(stmt_update)).scalar_one_or_none()
+                if s:
+                    s.parser_strategy = parser_name
+                    await db.commit()
+
+                    # Trigger re-ingestion
+                    from app.services.dispatcher import IngestionDispatcher
+                    dispatcher = IngestionDispatcher(session=db)
+                    await dispatcher.reingest_store(store_id_arg)
+
+            # Get store fresh
+            async def get_store_fresh(store_id_arg: str):
+                stmt_get = select(Store).where(Store.id == store_id_arg)
+                return (await db.execute(stmt_get)).scalar_one_or_none()
+
+            result = await run_multi_stage_fallback(
+                store_id=str(sid),
+                parser_scores=parser_scores,
+                re_ingest_func=re_ingest_with_parser,
+                get_store_func=get_store_fresh,
+            )
+
+            log.info(f"Fallback result: {result}")
+
+        except Exception as e:
+            log.error(f"Multi-stage fallback error: {e}")
+
+    background_tasks.add_task(run_fallback)
+
+    return {
+        "status": "queued",
+        "message": "Multi-stage fallback chain started",
+        "store_id": source_id,
+        "parsers_to_try": [p["parser"] for p in parser_scores],
+    }
+
+
 @router.post("/sources/{source_id}/test-parsers")
 async def test_parsers(
     source_id: str,

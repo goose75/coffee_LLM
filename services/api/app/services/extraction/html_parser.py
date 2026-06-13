@@ -174,6 +174,21 @@ class HtmlRulesParser(BaseParser):
         html_text = self._decode_html(html)
         errors: list[str] = []
 
+        # Try WooCommerce JSON extraction first (for JS-heavy sites like 17 Grams)
+        try:
+            from app.services.extraction.woocommerce_json_extractor import extract_woocommerce_coffee_data
+            json_payload = extract_woocommerce_coffee_data(html, url)
+            if json_payload and json_payload.price_variants:
+                log.info(f"Extracted {len(json_payload.price_variants)} variants via WooCommerce JSON")
+                return ExtractionResult(
+                    payload=json_payload,
+                    validation_status="valid",
+                    validation_errors=[],
+                    extraction_method="html_woocommerce_json",
+                )
+        except Exception as e:
+            log.debug(f"WooCommerce JSON extraction fallback: {e}")
+
         # Choose parser backend
         if _SELECTOLAX_AVAILABLE:
             extractor = SelectolaxExtractor(html_text)
