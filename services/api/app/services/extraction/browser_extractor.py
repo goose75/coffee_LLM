@@ -280,6 +280,7 @@ class BrowserPool:
         self.max_contexts = max_contexts
         self.headless = headless
         self.browser: Optional[Browser] = None
+        self.playwright = None
         self.contexts: list[BrowserContext] = []
         self.available: asyncio.Queue = asyncio.Queue(maxsize=max_contexts)
         self._initialized = False
@@ -291,18 +292,19 @@ class BrowserPool:
 
         log.info("Initializing BrowserPool with max_contexts=%d", self.max_contexts)
 
-        async with async_playwright() as p:
-            self.browser = await p.chromium.launch(headless=self.headless)
+        # Keep Playwright instance alive (don't use context manager)
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(headless=self.headless)
 
-            # Pre-create context pool
-            for i in range(self.max_contexts):
-                try:
-                    context = await self.browser.new_context()
-                    self.contexts.append(context)
-                    await self.available.put(context)
-                    log.debug("Created browser context %d/%d", i + 1, self.max_contexts)
-                except Exception as e:
-                    log.error("Failed to create context %d: %s", i, e)
+        # Pre-create context pool
+        for i in range(self.max_contexts):
+            try:
+                context = await self.browser.new_context()
+                self.contexts.append(context)
+                await self.available.put(context)
+                log.debug("Created browser context %d/%d", i + 1, self.max_contexts)
+            except Exception as e:
+                log.error("Failed to create context %d: %s", i, e)
 
         self._initialized = True
         log.info("BrowserPool initialized with %d contexts", len(self.contexts))
@@ -355,6 +357,12 @@ class BrowserPool:
                 await self.browser.close()
             except Exception as e:
                 log.warning("Error closing browser during shutdown: %s", e)
+
+        if self.playwright:
+            try:
+                await self.playwright.stop()
+            except Exception as e:
+                log.warning("Error stopping playwright during shutdown: %s", e)
 
         self._initialized = False
         log.info("BrowserPool shutdown complete")
