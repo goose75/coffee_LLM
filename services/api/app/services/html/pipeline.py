@@ -121,11 +121,16 @@ class HtmlIngestionPipeline:
         Execute the full HTML ingestion pipeline for this store.
         Always returns an IngestionRun — never raises.
         """
+        print(f"🔥 HtmlIngestionPipeline.run() STARTED for {self.store.domain}")
+        log.info(f"HtmlIngestionPipeline.run() started for {self.store.domain}")
         self._run = await self._open_run()
+        print(f"🔥 Opened run: {self._run.id}")
 
         try:
             # Fetch all source pages for this store
+            print(f"🔥 Fetching source pages for {self.store.domain}")
             source_pages = await self._fetch_source_pages()
+            print(f"🔥 Found {len(source_pages)} source pages")
 
             if not source_pages:
                 self.counters.warn(
@@ -415,6 +420,7 @@ class HtmlIngestionPipeline:
         """
         Fetch HTML from source_page, extract products, process each one.
         """
+        print(f"🔥 Processing page: {source_page.url}")
         try:
             # Fetch raw HTML
             html_bytes = await self._fetch_page(source_page.url)
@@ -442,9 +448,13 @@ class HtmlIngestionPipeline:
                 )
 
             # Extract products using HtmlExtractor
+            print(f"🔥 ABOUT TO CALL extract_products for {source_page.url}")
+            log.info(f"Calling extract_products for {source_page.url}")
             extraction_results = await self.extractor.extract_products(
                 html_bytes, source_page.url
             )
+            print(f"🔥 extract_products returned {len(extraction_results)} results")
+            log.info(f"extract_products returned {len(extraction_results)} results for {source_page.url}")
 
             for extraction_result in extraction_results:
                 # Skip invalid extractions and very low confidence results

@@ -46,7 +46,10 @@ def extract_woocommerce_coffee_data(html: bytes, url: str) -> ExtractionPayload 
     # Find omnisend_product = { and extract using brace matching (handles nested objects)
     omnisend_start = html_text.find('omnisend_product')
     if omnisend_start < 0:
-        log.debug("No omnisend_product found in page")
+        # Check if HTML is empty
+        if len(html_text) < 100:
+            print(f"⚠️ Empty/tiny HTML ({len(html_text)} bytes) for {url}")
+        log.debug(f"No omnisend_product found in page ({len(html_text)} bytes)")
         return None
 
     # Find opening brace

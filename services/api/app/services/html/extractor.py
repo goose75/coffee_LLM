@@ -28,6 +28,7 @@ from app.services.extraction.woocommerce_parser import WooCommerceParser
 from app.services.extraction.browser_extractor import BrowserExtractor
 from app.services.extraction.hybrid_extractor import HybridExtractor
 from app.services.extraction.payload import ExtractionPayload, ExtractionResult as ExtractionResultModel
+from app.services.extraction.woocommerce_json_extractor import extract_woocommerce_coffee_data
 from .product_listing_extractor import ProductListingExtractor
 
 log = logging.getLogger(__name__)
@@ -121,12 +122,36 @@ class HtmlExtractor:
         """
         Extract a single product using the fallback chain.
 
-        Try: schema.org → WooCommerce → HTML rules → Browser (JavaScript) → Hybrid/LLM
+        Try: WooCommerce JSON → schema.org → WooCommerce → HTML rules → Browser (JavaScript) → Hybrid/LLM
 
         Returns:
             List with 0-1 ExtractionResult objects
         """
+        print(f"🔥🔥🔥 _extract_single_product CALLED for {url}")
         results = []
+        log.info(f"_extract_single_product called for {url}")
+
+        # Try WooCommerce omnisend_product JSON extraction first (direct embedded data)
+        try:
+            print(f"🔥 About to extract WooCommerce JSON for {url}")
+            log.info(f"Attempting WooCommerce JSON extraction for {url}")
+            json_payload = extract_woocommerce_coffee_data(html_bytes, url)
+            print(f"🔥 JSON payload: {json_payload is not None}")
+            log.info(f"JSON extractor returned: {json_payload is not None}")
+            if json_payload is not None:
+                json_result = ExtractionResultModel(
+                    validation_status="valid",
+                    payload=json_payload
+                )
+                results.append(json_result)
+                log.info(
+                    f"WooCommerce JSON extraction succeeded for {url}: "
+                    f"{json_payload.coffee_name} "
+                    f"(confidence: {json_payload.confidence:.2f}, variants: {len(json_payload.price_variants)})"
+                )
+                return results  # JSON extraction is highly reliable, return immediately
+        except Exception as exc:
+            log.warning(f"WooCommerce JSON extraction failed for {url}: {exc}", exc_info=True)
 
         # Try schema.org first (highest precision if present)
         try:
