@@ -1060,7 +1060,15 @@ function generateHeuristicDiagnosis(store: Store, detail: StoreDetail): LLMDiagn
       expected_improvement: "Identifies which parser works best for this site structure",
     });
 
-    // Secondary: suggest switch based on current parser
+    // Secondary: multi-stage fallback chain (try multiple parsers in sequence)
+    actions.push({
+      action: "multi_stage_fallback",
+      description: "Try each parser in ranked order until one produces results",
+      priority: "high",
+      expected_improvement: "Automatically finds and switches to a working parser",
+    });
+
+    // Tertiary: suggest switch based on current parser (backup if fallback needed)
     if (store.parser_strategy === "html") {
       actions.push({
         action: "switch_to_schema_org",
@@ -1289,6 +1297,60 @@ async function applyLLMAction(storeId: string, action: string): Promise<{ succes
         return {
           success: true,
           message: `Tested parsers: best=${result.best_parser} (score=${result.best_score}). Switched and re-ingested.`,
+        };
+      } catch (e: any) {
+        return { success: false, message: e.message };
+      }
+
+    case "multi_stage_fallback":
+      try {
+        const res = await fetch(`${apiUrl}/api/v1/admin/sources/${storeId}/multi-stage-fallback`, {
+          method: "POST",
+        });
+        if (!res.ok) throw new Error(await res.text());
+
+        const result = await res.json();
+
+        // Wait for fallback chain to complete (poll for 2 minutes)
+        let attempts = 0;
+        const maxAttempts = 120; // 2 minutes with 1s polling
+        let bestResult = { records_created: 0, parser_used: "unknown" };
+
+        while (attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 1000));
+          attempts++;
+
+          try {
+            const store = await getSource(storeId);
+            const lastRun = store.last_run;
+
+            if (lastRun && ["completed", "partial"].includes(lastRun.status)) {
+              const recordsCreated = lastRun.records_created || 0;
+              bestResult = { records_created: recordsCreated, parser_used: result.parsers_to_try[0] };
+
+              if (recordsCreated > 0) {
+                return {
+                  success: true,
+                  message: `Multi-stage fallback succeeded! Extracted ${recordsCreated} products using best working parser.`,
+                };
+              }
+
+              // Check if we've reached max attempts
+              if (attempts >= maxAttempts) {
+                return {
+                  success: false,
+                  message: `Multi-stage fallback attempted all parsers: ${result.parsers_to_try.join(" → ")} but none produced results.`,
+                };
+              }
+            }
+          } catch (e) {
+            // Continue polling
+          }
+        }
+
+        return {
+          success: false,
+          message: `Multi-stage fallback timeout after ${maxAttempts} seconds. Tried: ${result.parsers_to_try.join(" → ")}`,
         };
       } catch (e: any) {
         return { success: false, message: e.message };
