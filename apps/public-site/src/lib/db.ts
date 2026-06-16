@@ -1,30 +1,24 @@
 import { Pool } from "pg";
 
-// Create a connection pool for the database
+// Global pool singleton - ensure only ONE pool instance across all imports
 let pool: Pool | null = null;
 
-function getPool() {
+function getPool(): Pool {
   if (!pool) {
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL environment variable is not set");
     }
-    console.log("Creating connection pool with DATABASE_URL:", process.env.DATABASE_URL?.replace(/:[^:]*@/, ":***@"));
+
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      max: 10,
-      min: 0,
+      max: 5,
+      min: 1,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 30000,
-      statement_timeout: 30000,
-      query_timeout: 30000,
+      connectionTimeoutMillis: 10000,
     });
 
     pool.on("error", (err) => {
-      console.error("Pool error event:", err);
-    });
-
-    pool.on("connect", () => {
-      console.log("Pool connection established");
+      console.error("Unexpected error on idle client:", err);
     });
   }
   return pool;
