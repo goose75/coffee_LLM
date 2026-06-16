@@ -1,21 +1,40 @@
 import { Pool } from "pg";
 
 // Create a connection pool for the database
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+let pool: Pool | null = null;
 
-pool.on("error", (err) => {
-  console.error("Unexpected error on idle client", err);
-});
+function getPool() {
+  if (!pool) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL environment variable is not set");
+    }
+    console.log("Creating connection pool with DATABASE_URL:", process.env.DATABASE_URL?.replace(/:[^:]*@/, ":***@"));
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 10,
+      min: 0,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 30000,
+      statement_timeout: 30000,
+      query_timeout: 30000,
+    });
+
+    pool.on("error", (err) => {
+      console.error("Pool error event:", err);
+    });
+
+    pool.on("connect", () => {
+      console.log("Pool connection established");
+    });
+  }
+  return pool;
+}
 
 export async function query(text: string, params?: unknown[]) {
   const start = Date.now();
   try {
-    const result = await pool.query(text, params);
+    const p = getPool();
+    const result = await p.query(text, params);
     const duration = Date.now() - start;
     console.log("Executed query", { text, duration, rows: result.rowCount });
     return result;
@@ -26,7 +45,10 @@ export async function query(text: string, params?: unknown[]) {
 }
 
 export async function getClient() {
-  return pool.connect();
+  const p = getPool();
+  return p.connect();
 }
 
-export default pool;
+export function getPoolInstance() {
+  return getPool();
+}
