@@ -208,9 +208,12 @@ class ErrorRecoveryService:
         flagged = []
         skipped = []
 
-        # IMPORTANT: Only shopify pipeline currently exists
-        # Don't downgrade to html/unknown without extraction pipeline
-        available_strategies = ["shopify"]
+        # Available extraction pipelines
+        # shopify: ShopifyIngestionPipeline (product_catalog.json)
+        # html: HtmlIngestionPipeline (schema.org → html rules → browser → llm)
+        # schema_org: SchemaOrgIngestionPipeline (JSON-LD extraction)
+        # llm: LLMParser fallback (via ExtractionService)
+        available_strategies = ["shopify", "html", "schema_org", "llm"]
 
         for correction in analysis["corrections"]:
             domain = correction["domain"]

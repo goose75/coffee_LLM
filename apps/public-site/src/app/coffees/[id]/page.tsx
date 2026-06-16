@@ -103,7 +103,7 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
   const history = priceHistory.status === "fulfilled" ? priceHistory.value : null;
   const stats = priceStats.status === "fulfilled" ? priceStats.value : [];
   const taste = tasteProfile.status === "fulfilled" ? tasteProfile.value : null;
-  const similarCoffees = similar.status === "fulfilled" ? similar.value : [];
+  const similarCoffees = (similar.status === "fulfilled" ? similar.value : []) as unknown as SimilarCoffee[];
 
   const processColor = PROCESS_COLORS[c.process ?? ""] ?? "var(--border)";
   const bestPer100g = stats.flatMap(s => s.min_per_100g != null ? [s.min_per_100g] : []);

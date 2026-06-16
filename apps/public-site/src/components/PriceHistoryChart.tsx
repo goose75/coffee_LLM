@@ -19,7 +19,7 @@ export function PriceHistoryChart({ coffeeId, days = 30 }: PriceHistoryChartProp
 
     (async () => {
       try {
-        const result = await getPriceHistory(coffeeId, { days });
+        const result = await getPriceHistory(coffeeId, days);
         if (mounted) {
           setData(result);
           setError(null);
@@ -68,7 +68,7 @@ export function PriceHistoryChart({ coffeeId, days = 30 }: PriceHistoryChartProp
   const maxPrice = Math.max(...prices);
   const currentPrice = cheapestVariant.history[cheapestVariant.history.length - 1].price_gbp;
   const change = currentPrice - minPrice;
-  const changePercent = ((change / minPrice) * 100).toFixed(1);
+  const changePercent = (change / minPrice) * 100;
 
   // Create simple ASCII chart
   const chartPoints = cheapestVariant.history.map(h => ({
@@ -119,11 +119,11 @@ export function PriceHistoryChart({ coffeeId, days = 30 }: PriceHistoryChartProp
       <div className="price-history-change">
         {change < 0 ? (
           <>
-            <span className="badge badge-positive">↓ {Math.abs(changePercent)}% from high</span>
+            <span className="badge badge-positive">↓ {Math.abs(changePercent).toFixed(1)}% from high</span>
             <span className="amount">Save £{Math.abs(change).toFixed(2)}</span>
           </>
         ) : change > 0 ? (
-          <span className="badge badge-negative">↑ {changePercent}% from low</span>
+          <span className="badge badge-negative">↑ {changePercent.toFixed(1)}% from low</span>
         ) : (
           <span className="badge">Stable price</span>
         )}

@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "buildCommand": "pnpm build",
+  "installCommand": "pnpm install",
+  "env": {
+    "DATABASE_URL": "@database_url"
+  },
+  "functions": {
+    "apps/public-site/src/**/*.ts": {
+      "memory": 512,
+      "maxDuration": 30
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/health",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}
