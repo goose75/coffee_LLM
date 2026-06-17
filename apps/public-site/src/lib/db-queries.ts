@@ -336,7 +336,7 @@ export async function getNewReleases(
   const daysAgo = Number(params.days) || 30;
 
   let sql = `
-    SELECT DISTINCT
+    SELECT
       cb.id,
       cb.canonical_name,
       cb.origin_country,
@@ -367,7 +367,7 @@ export async function getNewReleases(
     LEFT JOIN listing_variants lv ON bl.id = lv.bean_listing_id
     LEFT JOIN stores s ON bl.store_id = s.id
     WHERE bl.first_seen_at >= NOW() - INTERVAL '1 day' * $1
-    GROUP BY cb.id
+    GROUP BY cb.id, cb.canonical_name, cb.origin_country, cb.origin_region, cb.farm_or_estate, cb.washing_station, cb.producer, cb.varietal, cb.process, cb.process_detail, cb.altitude_masl_min, cb.altitude_masl_max, cb.harvest_year, cb.roast_level, cb.flavour_notes, cb.decaf_flag, cb.espresso_suitable_flag, cb.filter_suitable_flag, cb.data_completeness_score
     ORDER BY newest_listing_at DESC
     LIMIT $2 OFFSET $3
   `;
