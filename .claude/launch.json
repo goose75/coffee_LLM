@@ -5,7 +5,15 @@
       "name": "admin-app",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3001
+      "port": 3001,
+      "cwd": "apps/admin-app"
+    },
+    {
+      "name": "public-site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "cwd": "apps/public-site"
     }
   ]
 }

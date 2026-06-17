@@ -15,8 +15,7 @@
  */
 
 import { useEffect, useState, useRef } from "react";
-
-
+import { API_BASE } from "@/lib/api";
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 

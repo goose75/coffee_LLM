@@ -469,6 +469,26 @@ class HtmlIngestionPipeline:
                     )
                     continue
 
+                # ── Coffee classification: reject non-coffee items ──────────────
+                from app.services.shopify.coffee_classifier import is_coffee_product
+
+                product_dict = {
+                    "title": extraction_result.payload.coffee_name or "",
+                    "product_type": "",
+                    "tags": [],
+                }
+                is_coffee, reason = is_coffee_product(product_dict)
+                if not is_coffee:
+                    log.info(
+                        f"Skipping non-coffee product '{extraction_result.payload.coffee_name}' from {source_page.url}: {reason}"
+                    )
+                    self.counters.warn(
+                        f"Rejected non-coffee product: {reason}",
+                        url=source_page.url,
+                        detail=extraction_result.payload.coffee_name or "Unknown"
+                    )
+                    continue
+
                 log.info(
                     f"Processing extraction: {extraction_result.payload.coffee_name} (confidence={extraction_result.payload.confidence:.2f})"
                 )

@@ -204,6 +204,26 @@ class SchemaOrgIngestionPipeline:
         if not extraction.payload:
             return
 
+        # ── Coffee classification: reject non-coffee items ──────────────────────
+        from app.services.shopify.coffee_classifier import is_coffee_product
+
+        product_dict = {
+            "title": extraction.payload.coffee_name or "",
+            "product_type": "",
+            "tags": [],
+        }
+        is_coffee, reason = is_coffee_product(product_dict)
+        if not is_coffee:
+            log.info(
+                f"Skipping non-coffee product '{extraction.payload.coffee_name}' from {source_page.url}: {reason}"
+            )
+            self.counters.warn(
+                f"Rejected non-coffee product: {reason}",
+                url=source_page.url,
+                detail=extraction.payload.coffee_name or "Unknown"
+            )
+            return
+
         self.counters.records_seen += 1
 
         # Compute content hash from immutable fields
