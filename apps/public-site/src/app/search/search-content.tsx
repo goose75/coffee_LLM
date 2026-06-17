@@ -5,7 +5,7 @@
  *
  * Flow:
  * 1. User types a query and submits
- * 2. POST /api/v1/search/interpret → parsed query + ranked results
+ * 2. POST /api/search/interpret → parsed query + ranked results
  * 3. Show interpretation summary + results with match reasons
  * 4. Fallback gracefully if API fails
  */
@@ -16,7 +16,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import NaturalSearchBox from "@/components/NaturalSearchBox";
 import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ export default function SearchPageContent() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/search/interpret`, {
+      const res = await fetch(`/api/search/interpret`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, page: pg, page_size: 12, use_llm: true }),

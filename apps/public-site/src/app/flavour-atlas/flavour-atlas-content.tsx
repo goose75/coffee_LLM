@@ -20,7 +20,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,7 +87,7 @@ export default function FlavourAtlasContent() {
 
   // Load taxonomy
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/taste/atlas`)
+    fetch(`/api/taste/atlas`)
       .then((r) => r.json())
       .then((d: AtlasResponse) => { setAtlas(d); setLoading(false); })
       .catch(() => { setError("Could not load flavour data."); setLoading(false); });
@@ -108,7 +108,7 @@ export default function FlavourAtlasContent() {
     setCoffeeLoading(true);
     setCoffeePage(1);
     const slugStr = [...selectedSlugs].join(",");
-    fetch(`${API_BASE}/api/v1/taste/atlas/coffees?slugs=${encodeURIComponent(slugStr)}&page=1&page_size=12`)
+    fetch(`/api/taste/atlas/coffees?slugs=${encodeURIComponent(slugStr)}&page=1&page_size=12`)
       .then((r) => r.json())
       .then((d) => { setCoffees(d.data); setCoffeeTotal(d.total); setCoffeeLoading(false); })
       .catch(() => setCoffeeLoading(false));
@@ -117,7 +117,7 @@ export default function FlavourAtlasContent() {
   const loadMoreCoffees = useCallback(() => {
     const next = coffeePage + 1;
     const slugStr = [...selectedSlugs].join(",");
-    fetch(`${API_BASE}/api/v1/taste/atlas/coffees?slugs=${encodeURIComponent(slugStr)}&page=${next}&page_size=12`)
+    fetch(`/api/taste/atlas/coffees?slugs=${encodeURIComponent(slugStr)}&page=${next}&page_size=12`)
       .then((r) => r.json())
       .then((d) => { setCoffees((prev) => [...prev, ...d.data]); setCoffeePage(next); });
   }, [coffeePage, selectedSlugs]);

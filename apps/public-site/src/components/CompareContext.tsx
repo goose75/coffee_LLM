@@ -90,7 +90,7 @@ function CompareTray() {
     setSearching(true);
     const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-    fetch(`${apiBase}/api/v1/coffees?q=${encodeURIComponent(searchQuery)}&page_size=5`)
+    fetch(`${apiBase}/api/coffees?q=${encodeURIComponent(searchQuery)}&page_size=5`)
       .then(r => {
         if (!r.ok) throw new Error("Search failed");
         return r.json();

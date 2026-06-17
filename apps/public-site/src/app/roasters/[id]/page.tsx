@@ -22,7 +22,7 @@ import Link from "next/link";
 import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 import { useParams } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ export default function RoasterPage() {
 
   useEffect(() => {
     if (!id) return;
-    fetch(`${API_BASE}/api/v1/roasters/${id}/fingerprint`)
+    fetch(`/api/roasters/${id}/fingerprint`)
       .then((r) => { if (!r.ok) throw new Error(r.status.toString()); return r.json(); })
       .then((d) => { setFp(d); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });

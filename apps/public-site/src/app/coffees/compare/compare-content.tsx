@@ -23,7 +23,7 @@ import Link from "next/link";
 import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 import { useSearchParams, useRouter } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 // ── Colour palette for compared coffees ───────────────────────────────────────
 const COFFEE_COLOURS = ["#c4763a", "#6b9e8c", "#8b6bab"];
@@ -90,7 +90,7 @@ export default function ComparePageContent() {
     if (!idsParam) return;
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/api/v1/coffees/compare-multi?ids=${encodeURIComponent(idsParam)}`)
+    fetch(`/api/coffees/compare-multi?ids=${encodeURIComponent(idsParam)}`)
       .then((r) => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
       .then((d: CompareResponse) => { setData(d); setLoading(false); })
       .catch((e) => { setError(`Failed to load comparison: ${e.message}`); setLoading(false); });

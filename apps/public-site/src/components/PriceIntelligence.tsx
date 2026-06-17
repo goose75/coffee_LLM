@@ -20,7 +20,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -314,7 +314,7 @@ export function GoodValueAlts({ coffeeId, maxPrice }: { coffeeId: string; maxPri
   useEffect(() => {
     if (!maxPrice) { setLoading(false); return; }
     // Find coffees cheaper than this one, with similar flavour profile
-    fetch(`${API_BASE}/api/v1/coffees?page_size=4&max_price=${(maxPrice * 0.8).toFixed(2)}`)
+    fetch(`/api/coffees?page_size=4&max_price=${(maxPrice * 0.8).toFixed(2)}`)
       .then((r) => r.json())
       .then((d) => {
         const filtered = (d.data ?? []).filter((c: AltCoffee) => c.id !== coffeeId).slice(0, 3);

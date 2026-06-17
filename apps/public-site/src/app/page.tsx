@@ -26,7 +26,7 @@ import { QuickQuizModal } from "@/components/QuickQuizModal";
 import { DealsSection } from "@/components/DealsSection";
 import { TrendingSection } from "@/components/TrendingSection";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 const PROCESS_COLOURS: Record<string, string> = {
   washed: "#6b9e8c", natural: "#c4763a", honey: "#d4a84b",
@@ -81,19 +81,19 @@ export default function HomePage() {
 
   useEffect(() => {
     // Fetch in parallel, degrade gracefully
-    fetch(`${API_BASE}/api/v1/new-releases?days=21&page=1&page_size=8`)
+    fetch(`/api/new-releases?days=21&page=1&page_size=8`)
       .then(r => r.json()).then(d => setNewReleases(d.data ?? [])).catch(() => {});
 
-    fetch(`${API_BASE}/api/v1/roasters?page=1&page_size=6`)
+    fetch(`/api/roasters?page=1&page_size=6`)
       .then(r => r.json()).then(d => {
         setRoasters(d.data ?? []);
         setTotalRoasters(d.total ?? 0);
       }).catch(() => {});
 
-    fetch(`${API_BASE}/api/v1/coffees?page_size=1`)
+    fetch(`/api/coffees?page_size=1`)
       .then(r => r.json()).then(d => setTotalCoffees(d.total ?? 0)).catch(() => {});
 
-    fetch(`${API_BASE}/api/v1/origins`)
+    fetch(`/api/origins`)
       .then(r => r.json()).then(d => {
         setOrigins((d.origins ?? []).slice(0, 6));
       }).catch(() => {});

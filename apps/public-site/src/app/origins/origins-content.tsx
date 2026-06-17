@@ -25,7 +25,7 @@ import Link from "next/link";
 import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 import { useSearchParams, useRouter } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -109,7 +109,7 @@ export default function OriginsContent() {
 
   // Load origin list
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/origins`)
+    fetch(`/api/origins`)
       .then((r) => r.json())
       .then((d) => { setOrigins(d.origins); setLoading(false); })
       .catch(() => { setError("Could not load origins."); setLoading(false); });
@@ -119,7 +119,7 @@ export default function OriginsContent() {
   useEffect(() => {
     if (!selectedCountry) { setDetail(null); return; }
     setDetailLoading(true);
-    fetch(`${API_BASE}/api/v1/origins/${encodeURIComponent(selectedCountry)}`)
+    fetch(`/api/origins/${encodeURIComponent(selectedCountry)}`)
       .then((r) => r.json())
       .then((d) => { setDetail(d); setDetailLoading(false); })
       .catch(() => setDetailLoading(false));

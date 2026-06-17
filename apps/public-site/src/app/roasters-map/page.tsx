@@ -38,7 +38,7 @@ declare global {
   }
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
 interface Roaster {
@@ -106,7 +106,7 @@ export default function RoastersMapPage() {
 
   // Fetch roasters data
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/roasters?page_size=200`)
+    fetch(`/api/roasters?page_size=200`)
       .then(r => r.json())
       .then(d => {
         const roastersWithRegion = (d.data ?? []).filter((r: Roaster) => r.uk_region);
