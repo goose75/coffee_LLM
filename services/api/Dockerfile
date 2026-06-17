@@ -20,10 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgconf-2-4 \
     libgdk-pixbuf2.0-0 \
     libglib2.0-0 \
-    libgobject-2.0-0 \
     libgtk-3-0 \
-    libgxext6 \
-    libgxrender1 \
     libharfbuzz0b \
     libice6 \
     libnss3 \
@@ -40,7 +37,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxfixes3 \
     libxfont2 \
-    libxft6 \
     libxi6 \
     libxinerama1 \
     libxkbcommon0 \
