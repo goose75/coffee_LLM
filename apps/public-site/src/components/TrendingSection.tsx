@@ -16,11 +16,12 @@ export function TrendingSection() {
     (async () => {
       try {
         const result: Paginated<Coffee> = await getTrendingCoffees({ days: 14, page: 1, page_size: 6 });
-        if (mounted) {
+        if (mounted && result?.data) {
           setTrending(result.data);
         }
       } catch (err) {
         console.error("Failed to load trending:", err);
+        if (mounted) setTrending([]);
       } finally {
         if (mounted) setLoading(false);
       }

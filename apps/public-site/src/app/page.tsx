@@ -356,17 +356,18 @@ function OriginHighlights({ origins }: { origins: OriginSummary[] }) {
 
       <div className="origins-grid">
         {origins.slice(0, 6).map((o) => {
-          const maxFam = Math.max(1, ...o.top_flavour_families.map(f => f.count));
+          const families = o.top_flavour_families ?? [];
+          const maxFam = families.length > 0 ? Math.max(1, ...families.map(f => f.count)) : 1;
           return (
             <Link key={o.country} href={`/origins?country=${encodeURIComponent(o.country)}`} className="origin-tile">
               <div className="origin-tile-top">
-                <span className="origin-tile-emoji">{o.emoji}</span>
+                <span className="origin-tile-emoji">{o.emoji ?? '🌍'}</span>
                 <span className="origin-tile-name">{o.country}</span>
                 <span className="origin-tile-count">{o.coffee_count}</span>
               </div>
               {/* Flavour strip */}
               <div className="origin-tile-strip">
-                {o.top_flavour_families.map(f => (
+                {families.map(f => (
                   <div
                     key={f.slug}
                     className="origin-tile-band"

@@ -16,11 +16,12 @@ export function DealsSection() {
     (async () => {
       try {
         const result = await getDeals({ days: 7, min_discount_percent: 10, limit: 6 });
-        if (mounted) {
+        if (mounted && Array.isArray(result)) {
           setDeals(result);
         }
       } catch (err) {
         console.error("Failed to load deals:", err);
+        if (mounted) setDeals([]);
       } finally {
         if (mounted) setLoading(false);
       }
