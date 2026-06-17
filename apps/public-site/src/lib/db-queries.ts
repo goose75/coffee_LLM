@@ -71,7 +71,7 @@ export async function getCoffees(
     params_array.push(search);
   }
 
-  sql += ` GROUP BY cb.id ORDER BY cb.canonical_name ASC LIMIT $${params_array.length + 1} OFFSET $${params_array.length + 2}`;
+  sql += ` GROUP BY cb.id, cb.canonical_name, cb.origin_country, cb.origin_region, cb.farm_or_estate, cb.washing_station, cb.producer, cb.varietal, cb.process, cb.process_detail, cb.altitude_masl_min, cb.altitude_masl_max, cb.harvest_year, cb.roast_level, cb.flavour_notes, cb.decaf_flag, cb.espresso_suitable_flag, cb.filter_suitable_flag, cb.data_completeness_score ORDER BY cb.canonical_name ASC LIMIT $${params_array.length + 1} OFFSET $${params_array.length + 2}`;
   params_array.push(pageSize, offset);
 
   // Get total count
@@ -159,7 +159,7 @@ export async function getCoffee(id: string): Promise<Coffee> {
     LEFT JOIN listing_variants lv ON bl.id = lv.bean_listing_id
     LEFT JOIN stores s ON bl.store_id = s.id
     WHERE cb.id = $1
-    GROUP BY cb.id
+    GROUP BY cb.id, cb.canonical_name, cb.origin_country, cb.origin_region, cb.farm_or_estate, cb.washing_station, cb.producer, cb.varietal, cb.process, cb.process_detail, cb.altitude_masl_min, cb.altitude_masl_max, cb.harvest_year, cb.roast_level, cb.flavour_notes, cb.decaf_flag, cb.espresso_suitable_flag, cb.filter_suitable_flag, cb.data_completeness_score
   `,
     [id]
   );
