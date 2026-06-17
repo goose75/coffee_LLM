@@ -119,13 +119,13 @@ export async function getNewReleases(params: Record<string, string | number | un
 export async function getDeals(params: Record<string, string | number | undefined> = {}): Promise<Coffee[]> {
   const p = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); });
-  return apiFetch<Coffee[]>(`/coffees/deals${p.toString() ? `?${p}` : ""}`);
+  return apiFetch<Coffee[]>(`/deals${p.toString() ? `?${p}` : ""}`);
 }
 
 export async function getTrendingCoffees(params: Record<string, string | number | undefined> = {}): Promise<Paginated<Coffee>> {
   const p = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); });
-  return apiFetch<Paginated<Coffee>>(`/coffees/trending${p.toString() ? `?${p}` : ""}`);
+  return apiFetch<Paginated<Coffee>>(`/trending${p.toString() ? `?${p}` : ""}`);
 }
 
 export async function getPriceChangeInfo(coffeeId: string, days: number = 7): Promise<{
