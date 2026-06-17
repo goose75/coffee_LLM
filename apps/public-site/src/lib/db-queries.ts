@@ -292,7 +292,7 @@ export async function getRoasters(
     FROM stores s
     LEFT JOIN bean_listings bl ON s.id = bl.store_id
     WHERE s.roaster_flag = true AND s.active_flag = true
-    GROUP BY s.id
+    GROUP BY s.id, s.name, s.domain, s.homepage_url, s.uk_region, s.roaster_flag, s.cafe_flag, s.active_flag
     ORDER BY s.name ASC
     LIMIT $1 OFFSET $2
   `,
