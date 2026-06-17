@@ -9,12 +9,17 @@ function getPool(): Pool {
       throw new Error("DATABASE_URL environment variable is not set");
     }
 
+    // Detect if running on Railway (uses mainline.proxy.rlwy.net)
+    const isRailway = process.env.DATABASE_URL?.includes("rlwy.net");
+    const timeout = isRailway ? 60000 : 10000; // 60s on Railway, 10s locally
+
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 5,
-      min: 1,
+      min: isRailway ? 0 : 1, // Don't maintain min connections on Railway (stateless)
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: timeout,
+      ssl: isRailway ? { rejectUnauthorized: false } : false, // Railway requires SSL
     });
 
     pool.on("error", (err) => {
