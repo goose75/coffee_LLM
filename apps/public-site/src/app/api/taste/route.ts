@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
 interface AtlasNode {
@@ -128,10 +129,10 @@ export async function GET() {
       total_coffees: parseInt(totalResult.rows[0].count, 10) || 0
     };
 
-    return Response.json(response);
+    return NextResponse.json(response);
   } catch (error) {
     console.error("Error fetching taste atlas:", error);
-    return Response.json(
+    return NextResponse.json(
       { error: "Failed to fetch taste atlas", families: [], total_coffees: 0 },
       { status: 500 }
     );
