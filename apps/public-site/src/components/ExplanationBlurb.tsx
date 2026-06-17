@@ -72,23 +72,23 @@ function buildUrl(type: string, params: Record<string, string>): string | null {
   switch (type) {
     case "coffee":
       return params.coffeeId
-        ? `${API_BASE}/api/explain/coffee/${params.coffeeId}`
+        ? `/api/explain/coffee/${params.coffeeId}`
         : null;
     case "compare":
       return params.ids
-        ? `${API_BASE}/api/explain/compare?ids=${encodeURIComponent(params.ids)}`
+        ? `/api/explain/compare?ids=${encodeURIComponent(params.ids)}`
         : null;
     case "origin":
       return params.country
-        ? `${API_BASE}/api/explain/origin/${encodeURIComponent(params.country)}`
+        ? `/api/explain/origin/${encodeURIComponent(params.country)}`
         : null;
     case "roaster":
       return params.roasterId
-        ? `${API_BASE}/api/explain/roaster/${params.roasterId}`
+        ? `/api/explain/roaster/${params.roasterId}`
         : null;
     case "search":
       return params.q && params.coffeeId
-        ? `${API_BASE}/api/explain/search?q=${encodeURIComponent(params.q)}&coffee_id=${params.coffeeId}`
+        ? `/api/explain/search?q=${encodeURIComponent(params.q)}&coffee_id=${params.coffeeId}`
         : null;
     default:
       return null;
