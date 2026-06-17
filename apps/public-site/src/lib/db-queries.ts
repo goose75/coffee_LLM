@@ -29,9 +29,8 @@ export async function getCoffees(
   const offset = (page - 1) * pageSize;
   const search = params.search ? `%${params.search}%` : null;
 
-  // Simplified query: just get bean data, skip complex aggregates for now
   let sql = `
-    SELECT DISTINCT
+    SELECT
       cb.id,
       cb.canonical_name,
       cb.origin_country,
@@ -50,62 +49,45 @@ export async function getCoffees(
       cb.decaf_flag,
       cb.espresso_suitable_flag,
       cb.filter_suitable_flag,
-      cb.data_completeness_score
+      cb.data_completeness_score,
+      COUNT(DISTINCT bl.id) as listing_count,
+      MIN(lv.price_gbp) as min_price_gbp,
+      MAX(lv.price_gbp) as max_price_gbp,
+      MIN(lv.price_per_100g_gbp) as min_price_per_100g_gbp,
+      COUNT(DISTINCT s.id) as store_count,
+      MAX(bl.last_seen_at) as newest_listing_at
     FROM canonical_beans cb
-    INNER JOIN bean_listings bl ON cb.id = bl.canonical_bean_id
+    LEFT JOIN bean_listings bl ON cb.id = bl.canonical_bean_id
+    LEFT JOIN listing_variants lv ON bl.id = lv.bean_listing_id
+    LEFT JOIN stores s ON bl.store_id = s.id
+    WHERE bl.id IS NOT NULL
   `;
 
   const params_array: unknown[] = [];
+
   if (search) {
-    sql += ` WHERE (cb.canonical_name ILIKE $${params_array.length + 1}
+    sql += ` AND (cb.canonical_name ILIKE $${params_array.length + 1}
                    OR cb.origin_country ILIKE $${params_array.length + 1})`;
     params_array.push(search);
   }
 
-  sql += ` ORDER BY cb.canonical_name ASC
-    LIMIT $${params_array.length + 1} OFFSET $${params_array.length + 2}
-  `;
+  sql += ` GROUP BY cb.id, cb.canonical_name, cb.origin_country, cb.origin_region, cb.farm_or_estate, cb.washing_station, cb.producer, cb.varietal, cb.process, cb.process_detail, cb.altitude_masl_min, cb.altitude_masl_max, cb.harvest_year, cb.roast_level, cb.flavour_notes, cb.decaf_flag, cb.espresso_suitable_flag, cb.filter_suitable_flag, cb.data_completeness_score ORDER BY cb.canonical_name ASC LIMIT $${params_array.length + 1} OFFSET $${params_array.length + 2}`;
   params_array.push(pageSize, offset);
+
+  // Get total count
+  let countSql = `SELECT COUNT(DISTINCT cb.id) as count FROM canonical_beans cb
+                   LEFT JOIN bean_listings bl ON cb.id = bl.canonical_bean_id
+                   WHERE bl.id IS NOT NULL`;
+  if (search) {
+    countSql += ` AND (cb.canonical_name ILIKE $1 OR cb.origin_country ILIKE $1)`;
+  }
+
+  const countResult = await query(countSql, search ? [search] : []);
+  const total = Number(countResult.rows[0]?.count) || 0;
 
   const result = await query(sql, params_array);
 
-  // For each bean, get its listing stats in parallel
-  const beansWithStats = await Promise.all(
-    result.rows.map(async (row) => {
-      const statsResult = await query(
-        `SELECT
-          COUNT(DISTINCT bl.id) as listing_count,
-          MIN(lv.price_gbp) as min_price_gbp,
-          MAX(lv.price_gbp) as max_price_gbp,
-          MIN(lv.price_per_100g_gbp) as min_price_per_100g_gbp,
-          COUNT(DISTINCT bl.store_id) as store_count,
-          MAX(bl.last_seen_at) as newest_listing_at
-        FROM bean_listings bl
-        LEFT JOIN listing_variants lv ON bl.id = lv.bean_listing_id
-        WHERE bl.canonical_bean_id = $1`,
-        [row.id]
-      );
-      const stats = statsResult.rows[0];
-      return { ...row, ...stats };
-    })
-  );
-
-  // Get total count
-  let countSql = `
-    SELECT COUNT(DISTINCT cb.id) as count
-    FROM canonical_beans cb
-    INNER JOIN bean_listings bl ON cb.id = bl.canonical_bean_id
-  `;
-  const countParams: unknown[] = [];
-  if (search) {
-    countSql += ` WHERE (cb.canonical_name ILIKE $1 OR cb.origin_country ILIKE $1)`;
-    countParams.push(search);
-  }
-
-  const countResult = await query(countSql, countParams);
-  const total = Number(countResult.rows[0]?.count) || 0;
-
-  const data: Coffee[] = beansWithStats.map((row) => ({
+  const data: Coffee[] = result.rows.map((row) => ({
     id: row.id,
     canonical_name: row.canonical_name,
     origin_country: row.origin_country,
@@ -125,13 +107,13 @@ export async function getCoffees(
     espresso_suitable_flag: row.espresso_suitable_flag,
     filter_suitable_flag: row.filter_suitable_flag,
     data_completeness_score: row.data_completeness_score,
-    listing_count: Number(row.listing_count) || 0,
+    listing_count: Number(row.listing_count),
     min_price_gbp: row.min_price_gbp ? Number(row.min_price_gbp) : null,
     max_price_gbp: row.max_price_gbp ? Number(row.max_price_gbp) : null,
     min_price_per_100g_gbp: row.min_price_per_100g_gbp
       ? Number(row.min_price_per_100g_gbp)
       : null,
-    store_count: Number(row.store_count) || 0,
+    store_count: Number(row.store_count),
     newest_listing_at: row.newest_listing_at,
   }));
 
@@ -353,14 +335,7 @@ export async function getNewReleases(
   const offset = (page - 1) * pageSize;
   const daysAgo = Number(params.days) || 30;
 
-  // Use indexed timestamp filter with CTE for better performance
   let sql = `
-    WITH recent_listings AS (
-      SELECT DISTINCT bl.canonical_bean_id
-      FROM bean_listings bl
-      WHERE bl.first_seen_at >= NOW() - INTERVAL '1 day' * $1
-      ORDER BY bl.canonical_bean_id
-    )
     SELECT
       cb.id,
       cb.canonical_name,
@@ -382,16 +357,17 @@ export async function getNewReleases(
       cb.filter_suitable_flag,
       cb.data_completeness_score,
       COUNT(DISTINCT bl.id) as listing_count,
-      COALESCE(MIN(lv.price_gbp), 0) as min_price_gbp,
-      COALESCE(MAX(lv.price_gbp), 0) as max_price_gbp,
-      COALESCE(MIN(lv.price_per_100g_gbp), 0) as min_price_per_100g_gbp,
-      COUNT(DISTINCT bl.store_id) as store_count,
+      MIN(lv.price_gbp) as min_price_gbp,
+      MAX(lv.price_gbp) as max_price_gbp,
+      MIN(lv.price_per_100g_gbp) as min_price_per_100g_gbp,
+      COUNT(DISTINCT s.id) as store_count,
       MAX(bl.last_seen_at) as newest_listing_at
-    FROM recent_listings rl
-    INNER JOIN canonical_beans cb ON cb.id = rl.canonical_bean_id
-    INNER JOIN bean_listings bl ON cb.id = bl.canonical_bean_id AND bl.first_seen_at >= NOW() - INTERVAL '1 day' * $1
+    FROM canonical_beans cb
+    JOIN bean_listings bl ON cb.id = bl.canonical_bean_id
     LEFT JOIN listing_variants lv ON bl.id = lv.bean_listing_id
-    GROUP BY cb.id
+    LEFT JOIN stores s ON bl.store_id = s.id
+    WHERE bl.first_seen_at >= NOW() - INTERVAL '1 day' * $1
+    GROUP BY cb.id, cb.canonical_name, cb.origin_country, cb.origin_region, cb.farm_or_estate, cb.washing_station, cb.producer, cb.varietal, cb.process, cb.process_detail, cb.altitude_masl_min, cb.altitude_masl_max, cb.harvest_year, cb.roast_level, cb.flavour_notes, cb.decaf_flag, cb.espresso_suitable_flag, cb.filter_suitable_flag, cb.data_completeness_score
     ORDER BY newest_listing_at DESC
     LIMIT $2 OFFSET $3
   `;
@@ -399,8 +375,9 @@ export async function getNewReleases(
   const result = await query(sql, [daysAgo, pageSize, offset]);
 
   const countSql = `
-    SELECT COUNT(DISTINCT bl.canonical_bean_id) as count
-    FROM bean_listings bl
+    SELECT COUNT(DISTINCT cb.id) as count
+    FROM canonical_beans cb
+    JOIN bean_listings bl ON cb.id = bl.canonical_bean_id
     WHERE bl.first_seen_at >= NOW() - INTERVAL '1 day' * $1
   `;
   const countResult = await query(countSql, [daysAgo]);
