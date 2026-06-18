@@ -20,10 +20,9 @@ COPY --from=deps /app ./
 RUN pnpm --filter admin-app build
 
 FROM base AS runner
-WORKDIR /app
+WORKDIR /app/apps/admin-app
 ENV NODE_ENV=production
 ENV PORT=3001
-COPY --from=builder /app/apps/admin-app/.next/standalone ./apps/admin-app
-COPY --from=builder /app/apps/admin-app/.next/static ./apps/admin-app/.next/static
+COPY --from=builder /app ./
 EXPOSE 3001
-CMD ["node", "apps/admin-app/server.js"]
+CMD ["pnpm", "--filter", "admin-app", "start"]
