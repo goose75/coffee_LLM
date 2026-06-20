@@ -1,6 +1,5 @@
 "use client";
 
-export const dynamic = "force-dynamic";
 
 /**
  * /coffees/compare — Coffee comparison page.

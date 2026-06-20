@@ -1,6 +1,5 @@
 "use client";
 
-export const dynamic = "force-dynamic";
 
 /**
  * Flavour Atlas — /flavour-atlas
