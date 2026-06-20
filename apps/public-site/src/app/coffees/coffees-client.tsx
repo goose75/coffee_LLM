@@ -1,10 +1,10 @@
-import dynamic from "next/dynamic";
+"use client";
 
-const BrowsePageClient = dynamic(() => import("./coffees-client"), { ssr: false });
-
-export default function Page() {
-  return <BrowsePageClient />;
-}
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import CoffeeCard from "@/components/CoffeeCard";
+import { getCoffees, getMarketAverages } from "@/lib/api";
+import type { Coffee, MarketAverages } from "@/lib/api";
 
 const PROCESSES = ["washed", "natural", "honey", "anaerobic", "wet_hulled", "carbonic_maceration"];
 const ROASTS    = ["light", "medium_light", "medium", "medium_dark", "dark"];
@@ -56,7 +56,7 @@ function SkeletonCard() {
   );
 }
 
-export default function BrowsePage() {
+export default function BrowsePageClient() {
   const searchParams = useSearchParams();
   const [q, setQ]                       = useState("");
   const [debouncedQ, setDebouncedQ]     = useState("");
@@ -76,7 +76,6 @@ export default function BrowsePage() {
   const [roasterDomain, setRoasterDomain] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
-  // Initialize filters from URL params
   useEffect(() => {
     const domain = searchParams.get("roaster_domain");
     console.log("URL roaster_domain:", domain);
@@ -86,13 +85,11 @@ export default function BrowsePage() {
     }
   }, [searchParams]);
 
-  // Debounce
   useEffect(() => {
     getMarketAverages().then(d => setMarketMedian(d.median_per_100g_gbp)).catch(() => {});
   }, []);
 
   useEffect(() => { const t = setTimeout(() => setDebouncedQ(q), 350); return () => clearTimeout(t); }, [q]);
-  // Reset page on filter change
   useEffect(() => { setPage(1); }, [debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice, roasterDomain]);
 
   const load = useCallback(async () => {
@@ -114,7 +111,6 @@ export default function BrowsePage() {
       console.log("Loading coffees with params:", params);
       const data = await getCoffees(params);
       console.log("Got data with total:", data.total, "for request:", currentRequestId);
-      // Only update state if this is still the latest request
       if (currentRequestId === requestIdRef.current) {
         setCoffees(data.data); setTotal(data.total);
       }
