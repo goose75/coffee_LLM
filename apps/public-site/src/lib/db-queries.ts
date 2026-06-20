@@ -71,18 +71,30 @@ export async function getCoffees(
     params_array.push(search);
   }
 
+  if (params.store_domain) {
+    sql += ` AND s.domain = $${params_array.length + 1}`;
+    params_array.push(params.store_domain);
+  }
+
   sql += ` GROUP BY cb.id, cb.canonical_name, cb.origin_country, cb.origin_region, cb.farm_or_estate, cb.washing_station, cb.producer, cb.varietal, cb.process, cb.process_detail, cb.altitude_masl_min, cb.altitude_masl_max, cb.harvest_year, cb.roast_level, cb.flavour_notes, cb.decaf_flag, cb.espresso_suitable_flag, cb.filter_suitable_flag, cb.data_completeness_score ORDER BY cb.canonical_name ASC LIMIT $${params_array.length + 1} OFFSET $${params_array.length + 2}`;
   params_array.push(pageSize, offset);
 
   // Get total count
   let countSql = `SELECT COUNT(DISTINCT cb.id) as count FROM canonical_beans cb
                    LEFT JOIN bean_listings bl ON cb.id = bl.canonical_bean_id
+                   LEFT JOIN stores s ON bl.store_id = s.id
                    WHERE bl.id IS NOT NULL`;
+  const countParams: unknown[] = [];
   if (search) {
-    countSql += ` AND (cb.canonical_name ILIKE $1 OR cb.origin_country ILIKE $1)`;
+    countSql += ` AND (cb.canonical_name ILIKE $${countParams.length + 1} OR cb.origin_country ILIKE $${countParams.length + 1})`;
+    countParams.push(search);
+  }
+  if (params.store_domain) {
+    countSql += ` AND s.domain = $${countParams.length + 1}`;
+    countParams.push(params.store_domain);
   }
 
-  const countResult = await query(countSql, search ? [search] : []);
+  const countResult = await query(countSql, countParams);
   const total = Number(countResult.rows[0]?.count) || 0;
 
   const result = await query(sql, params_array);

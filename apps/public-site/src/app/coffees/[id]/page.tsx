@@ -7,14 +7,16 @@ import {
 } from "@/lib/api";
 import CoffeeDetailTabs from "@/components/CoffeeDetailTabs";
 import CompareButtonDetail from "@/components/CompareButtonDetail";
+import BrewFit from "@/components/BrewFit";
+import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 
 const PROCESS_COLORS: Record<string, string> = {
   washed: "#6b9e8c", natural: "#c4763a", honey: "#d4a03a",
   anaerobic: "#8b6bab", wet_hulled: "#5a7fa8", carbonic_maceration: "#a85a7f",
 };
 
-function TasteWheel({ profile }: { profile: TasteProfile | null | undefined }) {
-  if (!profile || !profile.has_structured_tags || !profile.families || profile.families.length === 0) return <LegacyWheel notes={profile?.raw_notes} />;
+function TasteWheel({ profile }: { profile: TasteProfile }) {
+  if (!profile.has_structured_tags || profile.families.length === 0) return <LegacyWheel notes={profile.raw_notes} />;
   const cx = 100, cy = 100, r = 68, n = profile.families.length;
   const maxW = Math.max(...profile.families.map(f => f.weight), 1);
   const segs = profile.families.map((f, i) => {
@@ -35,7 +37,7 @@ function TasteWheel({ profile }: { profile: TasteProfile | null | undefined }) {
   );
 }
 
-function LegacyWheel({ notes }: { notes: string[] | null | undefined }) {
+function LegacyWheel({ notes }: { notes: string[] }) {
   const CATS = [
     {label:"Floral",col:"#c084c0",kw:["jasmine","rose","elderflower","hibiscus","floral","lavender"]},
     {label:"Fruity",col:"#e05c3a",kw:["lemon","bergamot","citrus","grapefruit","orange","tropical","mango","passionfruit","cherry","peach","strawberry","blackcurrant","red fruit"]},
@@ -47,10 +49,9 @@ function LegacyWheel({ notes }: { notes: string[] | null | undefined }) {
     {label:"Ferm.",col:"#8b6bab",kw:["wine","whisky","vinegar","yoghurt","funky"]},
   ];
   const cx=100,cy=100,r=68;
-  const notesList = notes || [];
   const segs=CATS.map((c,i)=>{
     const angle=(i*360)/CATS.length;
-    const mc=c.kw.filter(k=>notesList.some(n=>n.includes(k)||k.includes(n))).length;
+    const mc=c.kw.filter(k=>notes.some(n=>n.includes(k)||k.includes(n))).length;
     const hasM=mc>0;
     const radius=hasM?r*0.35+(mc/c.kw.length)*r*0.62:r*0.18;
     const rad=(angle-90)*Math.PI/180;
@@ -103,7 +104,7 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
   const history = priceHistory.status === "fulfilled" ? priceHistory.value : null;
   const stats = priceStats.status === "fulfilled" ? priceStats.value : [];
   const taste = tasteProfile.status === "fulfilled" ? tasteProfile.value : null;
-  const similarCoffees = (similar.status === "fulfilled" ? similar.value : []) as unknown as SimilarCoffee[];
+  const similarCoffees = similar.status === "fulfilled" ? similar.value : [];
 
   const processColor = PROCESS_COLORS[c.process ?? ""] ?? "var(--border)";
   const bestPer100g = stats.flatMap(s => s.min_per_100g != null ? [s.min_per_100g] : []);
@@ -117,38 +118,51 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
       <div className="h-1.5 w-full" style={{ backgroundColor: processColor }} />
 
       {/* Hero */}
-      <div className="px-4 pt-6 pb-5" style={{ borderBottom: "1px solid var(--border-light)" }}>
-        <div className="text-sm uppercase tracking-widest mb-3" style={{ color: "var(--text)" }}>
+      <div className="px-4 pt-5 pb-4" style={{ borderBottom: "1px solid var(--border-light)" }}>
+        <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--text-faint)" }}>
           {[c.origin_country, c.origin_region].filter(Boolean).join(" · ")}
         </div>
 
-        <h1 className="text-4xl font-light leading-tight mb-2" style={{ fontFamily: "var(--font-display)" }}>
+        <h1 className="text-3xl font-light leading-tight mb-1" style={{ fontFamily: "var(--font-display)" }}>
           {c.canonical_name}
         </h1>
 
         {c.farm_or_estate && (
-          <p className="text-base italic mb-4" style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}>
+          <p className="text-sm italic mb-3" style={{ fontFamily: "var(--font-display)", color: "var(--text-muted)" }}>
             {c.farm_or_estate}
           </p>
         )}
 
+        {/* Flavour notes — horizontal scroll strip */}
+        {c.flavour_notes.length > 0 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 mb-4"
+            style={{ scrollbarWidth: "none" }}>
+            {c.flavour_notes.map(n => (
+              <span key={n} className="flex-shrink-0 text-xs px-3 py-1 rounded-full capitalize"
+                style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)", border: "1px solid var(--border-light)" }}>
+                {n}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Brew badges */}
-        <div className="flex items-center gap-2 mb-5">
+        <div className="flex items-center gap-2 mb-4">
           {c.espresso_suitable_flag && (
-            <span className="text-xs px-3 py-2 rounded-full font-medium"
+            <span className="text-[11px] px-2.5 py-1 rounded-full font-medium"
               style={{ backgroundColor: "var(--accent-dim)", color: "var(--accent)", border: "1px solid var(--accent)" }}>
               ☕ Espresso
             </span>
           )}
           {c.filter_suitable_flag && (
-            <span className="text-xs px-3 py-2 rounded-full"
-              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)", border: "1px solid var(--border)" }}>
+            <span className="text-[11px] px-2.5 py-1 rounded-full"
+              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
               🫗 Filter
             </span>
           )}
           {c.decaf_flag && (
-            <span className="text-xs px-3 py-2 rounded-full"
-              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text)" }}>Decaf</span>
+            <span className="text-[11px] px-2.5 py-1 rounded-full"
+              style={{ backgroundColor: "var(--bg-warm)", color: "var(--text-muted)" }}>Decaf</span>
           )}
           <CompareButtonDetail coffeeId={c.id} coffeeName={c.canonical_name} />
         </div>
@@ -158,21 +172,21 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
           <div>
             {c.min_price_gbp != null ? (
               <>
-                <span className="text-3xl font-light" style={{ fontFamily: "var(--font-display)", color: "var(--accent)" }}>
+                <span className="text-2xl font-light" style={{ fontFamily: "var(--font-display)", color: "var(--accent)" }}>
                   £{c.min_price_gbp.toFixed(2)}
                 </span>
-                <span className="text-sm ml-2" style={{ color: "var(--text)" }}>
+                <span className="text-xs ml-1.5" style={{ color: "var(--text-faint)" }}>
                   from · {c.store_count ?? 0} {(c.store_count ?? 0) === 1 ? "store" : "stores"}
                 </span>
-                {bestP100 && <div className="text-sm mt-1" style={{ color: "var(--text)" }}>Best £{bestP100.toFixed(2)}/100g</div>}
+                {bestP100 && <div className="text-xs mt-0.5" style={{ color: "var(--text-faint)" }}>Best £{bestP100.toFixed(2)}/100g</div>}
               </>
             ) : (
-              <span className="text-base" style={{ color: "var(--text)" }}>Price unavailable</span>
+              <span className="text-sm" style={{ color: "var(--text-faint)" }}>Price unavailable</span>
             )}
           </div>
           {c.roast_level && (
-            <div className="w-32 flex-shrink-0">
-              <div className="text-sm uppercase tracking-wider mb-2 text-right font-semibold" style={{ color: "var(--text)" }}>
+            <div className="w-28 flex-shrink-0">
+              <div className="text-[10px] uppercase tracking-wider mb-1.5 text-right" style={{ color: "var(--text-faint)" }}>
                 {c.roast_level.replace(/_/g, " ")}
               </div>
               <RoastBar level={c.roast_level} />
@@ -182,6 +196,16 @@ export default async function CoffeeDetailPage({ params }: { params: { id: strin
       </div>
 
       {/* Tabbed detail sections */}
+      {/* Grounded explanation */}
+      <div className="px-4 pb-1">
+        <ExplanationBlurb type="coffee" params={{ coffeeId: c.id }} />
+      </div>
+
+      {/* Brew Fit */}
+      <div className="px-4 pb-2">
+        <BrewFit coffeeId={c.id} />
+      </div>
+
       <CoffeeDetailTabs
         coffee={c}
         history={history}

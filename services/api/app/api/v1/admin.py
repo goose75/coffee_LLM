@@ -230,8 +230,7 @@ async def trigger_ingestion(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
-    Trigger a Shopify ingestion run for a store.
-    Only works for stores with parser_strategy=shopify.
+    Trigger ingestion run for a store (Shopify or HTML).
     Runs synchronously in the request for now (Phase 2 moves this to a worker queue).
     """
     try:
@@ -242,14 +241,19 @@ async def trigger_ingestion(
     store = (await db.execute(select(Store).where(Store.id == store_uuid))).scalar_one_or_none()
     if store is None:
         raise HTTPException(status_code=404, detail="Store not found")
-    if store.parser_strategy.value != "shopify":
+
+    if store.parser_strategy.value == "shopify":
+        from app.services.shopify import ShopifyIngestionPipeline
+        pipeline = ShopifyIngestionPipeline(session=db, store=store)
+    elif store.parser_strategy.value == "html":
+        from app.services.html import HtmlIngestionPipeline
+        pipeline = HtmlIngestionPipeline(session=db, store=store)
+    else:
         raise HTTPException(
             status_code=422,
-            detail=f"Store parser_strategy is '{store.parser_strategy.value}', not 'shopify'",
+            detail=f"Store parser_strategy '{store.parser_strategy.value}' not supported yet",
         )
 
-    from app.services.shopify import ShopifyIngestionPipeline
-    pipeline = ShopifyIngestionPipeline(session=db, store=store)
     run = await pipeline.run()
 
     return {
@@ -2068,6 +2072,37 @@ async def auto_match_new_listings(
         "processed": min(unmatched_count, limit),
         "background_task_queued": True,
     }
+
+
+@router.post("/matching/enrich-all-canonicals", response_model=dict)
+async def enrich_all_canonicals(
+    limit: int = Query(10000, ge=100, le=100000, description="Max canonicals to enrich"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    One-time enrichment: for all accepted matches, enrich canonical beans with
+    extracted fields from their matched listings.
+
+    Updates: origin_country, process, roast_level (only if missing).
+    """
+    try:
+        from app.services.matching import CanonicalMatchingService
+        service = CanonicalMatchingService(db)
+        enriched_count, skipped_count = await service.enrich_all_canonicals(limit=limit)
+
+        return {
+            "status": "completed",
+            "message": f"Enriched {enriched_count} canonicals from listings",
+            "enriched_count": enriched_count,
+            "skipped_count": skipped_count,
+            "total": enriched_count + skipped_count,
+        }
+    except Exception as exc:
+        log.error(f"Enrichment failed: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Enrichment failed: {str(exc)}"
+        )
 
 
 @router.post("/beans/extract-flavours-from-descriptions", response_model=dict)

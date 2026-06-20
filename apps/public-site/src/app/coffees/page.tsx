@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import CoffeeCard from "@/components/CoffeeCard";
 import { getCoffees, getMarketAverages } from "@/lib/api";
 import type { Coffee, MarketAverages } from "@/lib/api";
@@ -56,6 +57,7 @@ function SkeletonCard() {
 }
 
 export default function BrowsePage() {
+  const searchParams = useSearchParams();
   const [q, setQ]                       = useState("");
   const [debouncedQ, setDebouncedQ]     = useState("");
   const [selectedProcess, setSelectedProcess] = useState<string[]>([]);
@@ -71,6 +73,18 @@ export default function BrowsePage() {
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
   const [marketMedian, setMarketMedian] = useState<number | null>(null);
+  const [roasterDomain, setRoasterDomain] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+
+  // Initialize filters from URL params
+  useEffect(() => {
+    const domain = searchParams.get("roaster_domain");
+    console.log("URL roaster_domain:", domain);
+    if (domain) {
+      setRoasterDomain(domain);
+      console.log("Set roasterDomain to:", domain);
+    }
+  }, [searchParams]);
 
   // Debounce
   useEffect(() => {
@@ -79,9 +93,10 @@ export default function BrowsePage() {
 
   useEffect(() => { const t = setTimeout(() => setDebouncedQ(q), 350); return () => clearTimeout(t); }, [q]);
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice]);
+  useEffect(() => { setPage(1); }, [debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice, roasterDomain]);
 
   const load = useCallback(async () => {
+    const currentRequestId = ++requestIdRef.current;
     setLoading(true); setError(null);
     try {
       const params: Record<string, string | number | undefined> = { page, page_size: 24 };
@@ -90,24 +105,30 @@ export default function BrowsePage() {
       if (selectedRoast.length)   params.roast_level = selectedRoast.join(",");
       if (selectedOrigin.length)  params.origin_country = selectedOrigin.join(",");
       if (selectedFlavour.length) params.flavour = selectedFlavour.join(",");
+      if (roasterDomain)          params.store_domain = roasterDomain;
       if (selectedPrice !== null) {
         const band = PRICE_BANDS[selectedPrice];
         params.min_price = band.min;
         if (band.max !== 999) params.max_price = band.max;
       }
+      console.log("Loading coffees with params:", params);
       const data = await getCoffees(params);
-      setCoffees(data.data); setTotal(data.total);
+      console.log("Got data with total:", data.total, "for request:", currentRequestId);
+      // Only update state if this is still the latest request
+      if (currentRequestId === requestIdRef.current) {
+        setCoffees(data.data); setTotal(data.total);
+      }
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
-  }, [page, debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice]);
+  }, [page, debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice, roasterDomain]);
 
   useEffect(() => { load(); }, [load]);
 
   const toggle = (arr: string[], set: (a: string[]) => void, val: string) =>
     set(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
-  const activeCount = selectedProcess.length + selectedRoast.length + selectedOrigin.length + selectedFlavour.length + (selectedPrice !== null ? 1 : 0);
-  const clearAll = () => { setSelectedProcess([]); setSelectedRoast([]); setSelectedOrigin([]); setSelectedFlavour([]); setSelectedPrice(null); setQ(""); };
+  const activeCount = selectedProcess.length + selectedRoast.length + selectedOrigin.length + selectedFlavour.length + (selectedPrice !== null ? 1 : 0) + (roasterDomain ? 1 : 0);
+  const clearAll = () => { setSelectedProcess([]); setSelectedRoast([]); setSelectedOrigin([]); setSelectedFlavour([]); setSelectedPrice(null); setQ(""); setRoasterDomain(null); };
   const totalPages = Math.ceil(total / 24);
 
   const FilterPanel = (

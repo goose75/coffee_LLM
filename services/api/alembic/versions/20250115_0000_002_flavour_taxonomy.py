@@ -57,7 +57,7 @@ def upgrade() -> None:
             "synonyms",
             postgresql.ARRAY(sa.String(100)),
             nullable=False,
-            server_default="'{}'",
+            server_default=sa.text("'{}'"),
         ),
         # Sort order within siblings
         sa.Column("sort_order", sa.Integer, nullable=False, server_default="0"),

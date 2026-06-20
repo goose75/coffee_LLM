@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
       origin: searchParams.get("origin") ?? undefined,
       roast: searchParams.get("roast") ?? undefined,
       flavour: searchParams.get("flavour") ?? undefined,
+      store_domain: searchParams.get("store_domain") ?? undefined,
     };
 
     const data = await dbQueries.getCoffees(params);

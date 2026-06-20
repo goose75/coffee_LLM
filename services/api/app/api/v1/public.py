@@ -105,6 +105,7 @@ async def list_coffees(
     decaf: bool | None = None,
     espresso_suitable: bool | None = None,
     filter_suitable: bool | None = None,
+    store_domain: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(24, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -136,6 +137,8 @@ async def list_coffees(
         stmt = stmt.where(CanonicalBean.espresso_suitable_flag.is_(espresso_suitable))
     if filter_suitable is not None:
         stmt = stmt.where(CanonicalBean.filter_suitable_flag.is_(filter_suitable))
+    if store_domain:
+        stmt = stmt.where(BeanListing.store.has(Store.domain == store_domain))
     if min_price is not None or max_price is not None:
         stmt = stmt.join(ListingVariant, ListingVariant.bean_listing_id == BeanListing.id)
         if min_price is not None:

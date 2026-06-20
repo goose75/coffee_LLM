@@ -1,10 +1,9 @@
-// Use local Next.js API routes instead of external API
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}/api/v1${path}`, {
     ...init,
-    next: { revalidate: 0 }, // no cache - real-time data
+    next: { revalidate: 300 }, // 5-min cache
   } as RequestInit);
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
   return res.json() as Promise<T>;
@@ -63,7 +62,6 @@ export interface Coffee {
   store_count?: number;
   newest_listing_at?: string | null;
   listings?: StoreListing[];
-  discount_percent?: number | null;
 }
 
 export interface Roaster {
@@ -114,34 +112,32 @@ export async function getNewReleases(params: Record<string, string | number | un
   return apiFetch<Paginated<Coffee>>(`/new-releases${p.toString() ? `?${p}` : ""}`);
 }
 
-// ── Phase 1: Price Intelligence Endpoints ──────────────────────────────────────
+// Frontend proxy API fetch (for /api/... endpoints, not /api/v1/...)
+async function frontendApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    next: { revalidate: 60 }, // 1-min cache for deals/trending
+  } as RequestInit);
+  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  return res.json() as Promise<T>;
+}
 
 export async function getDeals(params: Record<string, string | number | undefined> = {}): Promise<Coffee[]> {
   const p = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); });
-  return apiFetch<Coffee[]>(`/deals${p.toString() ? `?${p}` : ""}`);
+  return frontendApiFetch<Coffee[]>(`/api/deals${p.toString() ? `?${p}` : ""}`);
 }
 
 export async function getTrendingCoffees(params: Record<string, string | number | undefined> = {}): Promise<Paginated<Coffee>> {
   const p = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); });
-  return apiFetch<Paginated<Coffee>>(`/trending${p.toString() ? `?${p}` : ""}`);
-}
-
-export async function getPriceChangeInfo(coffeeId: string, days: number = 7): Promise<{
-  old_price: number | null;
-  current_price: number | null;
-  change_amount: number | null;
-  change_percent: number | null;
-  days: number;
-}> {
-  return apiFetch(`/coffees/${coffeeId}/price-change-info?days=${days}`);
+  return frontendApiFetch<Paginated<Coffee>>(`/api/new-releases${p.toString() ? `?${p}` : ""}`);
 }
 
 // ── Mock data for development (API not yet live) ──────────────────────────────
 
 
-// ── Price intelligence types ──────────────────────────────────────────────
+// ── Price intelligence types ──────────────────────────────────────────────────
 
 export interface PricePoint {
   recorded_at: string;
@@ -211,7 +207,7 @@ export interface PriceSummaryStats {
   median_per_100g: number | null;
 }
 
-// ── Taste intelligence types ──────────────────────────────────────────────
+// ── Taste intelligence types ──────────────────────────────────────────────────
 
 export interface TaggedNote {
   raw_note: string;
@@ -261,7 +257,7 @@ export async function getMarketAverages(): Promise<MarketAverages> {
   return apiFetch<MarketAverages>("/market/averages");
 }
 
-// ── Price + taste fetch functions ─────────────────────────────────────────
+// ── Price + taste fetch functions ─────────────────────────────────────────────
 
 export async function getPriceHistory(coffeeId: string, days = 90): Promise<BeanPriceHistory> {
   return apiFetch<BeanPriceHistory>(`/coffees/${coffeeId}/price-history?days=${days}`);
@@ -279,16 +275,6 @@ export async function getTasteProfile(coffeeId: string): Promise<TasteProfile> {
   return apiFetch<TasteProfile>(`/coffees/${coffeeId}/taste-profile`);
 }
 
-export async function getSimilarCoffees(coffeeId: string, limit = 6): Promise<Coffee[]> {
-  return apiFetch<Coffee[]>(`/coffees/${coffeeId}/similar?limit=${limit}`);
-}
-
-export async function getFilterOptions() {
-  return apiFetch<{
-    origins: string[];
-    regions: string[];
-    roasts: string[];
-    processes: string[];
-    varietals: string[];
-  }>("/coffees/filters/options");
+export async function getSimilarCoffees(coffeeId: string, limit = 4): Promise<SimilarCoffee[]> {
+  return apiFetch<SimilarCoffee[]>(`/coffees/${coffeeId}/similar?limit=${limit}`);
 }

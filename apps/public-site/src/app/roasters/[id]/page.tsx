@@ -22,7 +22,7 @@ import Link from "next/link";
 import { ExplanationBlurb } from "@/components/ExplanationBlurb";
 import { useParams } from "next/navigation";
 
-
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ export default function RoasterPage() {
 
   useEffect(() => {
     if (!id) return;
-    fetch(`/api/roasters/${id}/fingerprint`)
+    fetch(`${API_BASE}/api/v1/roasters/${id}/fingerprint`)
       .then((r) => { if (!r.ok) throw new Error(r.status.toString()); return r.json(); })
       .then((d) => { setFp(d); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });
@@ -225,7 +225,7 @@ export default function RoasterPage() {
               </Link>
             ))}
           </div>
-          <Link href={`/coffees?store=${id}`} className="rf-see-all">
+          <Link href={`/coffees?roaster_domain=${fp.domain}`} className="rf-see-all">
             See all {fp.coffee_count} coffees →
           </Link>
         </section>

@@ -1,5 +1,3 @@
-"""HTML ingestion pipeline and utilities."""
-
 from .pipeline import HtmlIngestionPipeline
 from .extractor import HtmlExtractor
 

@@ -181,22 +181,13 @@ export default function CoffeeCard({ coffee, layout = "grid", marketMedianPer100
             <div className="flex items-center justify-between mt-4 pt-4"
               style={{ borderTop: "1px solid var(--border-light)" }}>
               <div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-6px flex-wrap">
                 {coffee.min_price_gbp != null ? (
                   <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>
                     from £{coffee.min_price_gbp.toFixed(2)}
                   </span>
                 ) : (
                   <span className="text-xs" style={{ color: "var(--text-faint)" }}>Price unavailable</span>
-                )}
-                {coffee.discount_percent && coffee.discount_percent > 0 && (
-                  <span className="text-[11px] px-2 py-1 rounded-full" style={{
-                    backgroundColor: "rgba(76, 175, 80, 0.1)",
-                    color: "#4caf50",
-                    fontWeight: 500
-                  }}>
-                    ↓ {coffee.discount_percent.toFixed(0)}%
-                  </span>
                 )}
                 <ValueBadge
                   pricePerHundred={coffee.min_price_per_100g_gbp ?? null}
