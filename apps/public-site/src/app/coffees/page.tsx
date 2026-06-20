@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import CoffeeCard from "@/components/CoffeeCard";
 import { getCoffees, getMarketAverages } from "@/lib/api";
@@ -74,6 +74,7 @@ export default function BrowsePage() {
   const [error, setError]               = useState<string | null>(null);
   const [marketMedian, setMarketMedian] = useState<number | null>(null);
   const [roasterDomain, setRoasterDomain] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
   // Initialize filters from URL params
   useEffect(() => {
@@ -95,6 +96,7 @@ export default function BrowsePage() {
   useEffect(() => { setPage(1); }, [debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice, roasterDomain]);
 
   const load = useCallback(async () => {
+    const currentRequestId = ++requestIdRef.current;
     setLoading(true); setError(null);
     try {
       const params: Record<string, string | number | undefined> = { page, page_size: 24 };
@@ -111,8 +113,11 @@ export default function BrowsePage() {
       }
       console.log("Loading coffees with params:", params);
       const data = await getCoffees(params);
-      console.log("Got data with total:", data.total);
-      setCoffees(data.data); setTotal(data.total);
+      console.log("Got data with total:", data.total, "for request:", currentRequestId);
+      // Only update state if this is still the latest request
+      if (currentRequestId === requestIdRef.current) {
+        setCoffees(data.data); setTotal(data.total);
+      }
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [page, debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice, roasterDomain]);
