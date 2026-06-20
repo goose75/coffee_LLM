@@ -2074,6 +2074,37 @@ async def auto_match_new_listings(
     }
 
 
+@router.post("/matching/enrich-all-canonicals", response_model=dict)
+async def enrich_all_canonicals(
+    limit: int = Query(10000, ge=100, le=100000, description="Max canonicals to enrich"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    One-time enrichment: for all accepted matches, enrich canonical beans with
+    extracted fields from their matched listings.
+
+    Updates: origin_country, process, roast_level (only if missing).
+    """
+    try:
+        from app.services.matching import CanonicalMatchingService
+        service = CanonicalMatchingService(db)
+        enriched_count, skipped_count = await service.enrich_all_canonicals(limit=limit)
+
+        return {
+            "status": "completed",
+            "message": f"Enriched {enriched_count} canonicals from listings",
+            "enriched_count": enriched_count,
+            "skipped_count": skipped_count,
+            "total": enriched_count + skipped_count,
+        }
+    except Exception as exc:
+        log.error(f"Enrichment failed: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Enrichment failed: {str(exc)}"
+        )
+
+
 @router.post("/beans/extract-flavours-from-descriptions", response_model=dict)
 async def extract_flavours_from_descriptions(
     limit: int = Query(500, ge=1, le=1000, description="Max beans to process"),

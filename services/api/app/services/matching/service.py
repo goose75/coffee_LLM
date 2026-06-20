@@ -358,6 +358,42 @@ class CanonicalMatchingService:
         ids = [row[0] for row in (await self.session.execute(stmt)).all()]
         return await self.bulk_reject(ids, user_id=user_id, notes=notes)
 
+    async def enrich_all_canonicals(self, limit: int = 10000) -> tuple[int, int]:
+        """
+        One-time enrichment: for all accepted matches, enrich canonical beans
+        with extracted fields from their matched listings.
+
+        Returns (enriched_count, skipped_count)
+        """
+        from sqlalchemy import select
+        # Fetch all accepted matches with their listings and canonicals
+        stmt = (
+            select(CanonicalMatch, BeanListing, CanonicalBean)
+            .where(CanonicalMatch.review_status == ReviewStatus.accepted)
+            .join(BeanListing, CanonicalMatch.bean_listing_id == BeanListing.id)
+            .join(CanonicalBean, CanonicalMatch.proposed_canonical_bean_id == CanonicalBean.id)
+            .limit(limit)
+        )
+        results = (await self.session.execute(stmt)).all()
+
+        enriched = 0
+        skipped = 0
+
+        for match, listing, canonical in results:
+            try:
+                # Try to enrich - will only update if fields are missing
+                await self._enrich_canonical_from_listing(canonical, listing)
+                enriched += 1
+            except Exception as exc:
+                log.error(
+                    "Failed to enrich canonical %s from listing %s: %s",
+                    canonical.id, listing.id, exc
+                )
+                skipped += 1
+
+        await self.session.commit()
+        return enriched, skipped
+
     # ── Candidate retrieval ───────────────────────────────────────────────────
 
     async def _fetch_candidates(
@@ -621,17 +657,23 @@ class CanonicalMatchingService:
         Update canonical_bean fields with extracted data from a listing.
 
         Called whenever a listing is matched to a canonical (auto-accept or after review).
-        Updates origin_country, process, and roast_level if the listing has values and
-        the canonical doesn't, or if the listing provides a more specific value.
+        Updates origin_country, process, and roast_level with values from the listing.
+        Overwrites existing values to ensure canonicals have the best available data.
         """
-        # Update origin_country if not set or if listing has a value
-        if listing.origin_label_raw and not canonical.origin_country:
-            canonical.origin_country = self._extract_country(listing)
+        # Extract and update origin_country
+        if listing.origin_label_raw:
+            extracted = self._extract_country(listing)
+            if extracted:
+                canonical.origin_country = extracted
 
-        # Update process if not set or if listing has a value
-        if listing.process_label_raw and not canonical.process:
-            canonical.process = self._extract_process(listing)
+        # Extract and update process
+        if listing.process_label_raw:
+            extracted = self._extract_process(listing)
+            if extracted:
+                canonical.process = extracted
 
-        # Update roast_level if not set or if listing has a value
-        if listing.roast_label_raw and not canonical.roast_level:
-            canonical.roast_level = self._extract_roast(listing)
+        # Extract and update roast_level
+        if listing.roast_label_raw:
+            extracted = self._extract_roast(listing)
+            if extracted:
+                canonical.roast_level = extracted
