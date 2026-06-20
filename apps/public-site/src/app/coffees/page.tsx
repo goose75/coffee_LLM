@@ -78,8 +78,10 @@ export default function BrowsePage() {
   // Initialize filters from URL params
   useEffect(() => {
     const domain = searchParams.get("roaster_domain");
+    console.log("URL roaster_domain:", domain);
     if (domain) {
       setRoasterDomain(domain);
+      console.log("Set roasterDomain to:", domain);
     }
   }, [searchParams]);
 
@@ -107,7 +109,9 @@ export default function BrowsePage() {
         params.min_price = band.min;
         if (band.max !== 999) params.max_price = band.max;
       }
+      console.log("Loading coffees with params:", params);
       const data = await getCoffees(params);
+      console.log("Got data with total:", data.total);
       setCoffees(data.data); setTotal(data.total);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
