@@ -13,9 +13,11 @@ from math import sin
 
 sys.path.insert(0, "/app")
 
+import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.database import Base
 from app.models.bean_listing import BeanListing
 from app.models.canonical_bean import CanonicalBean
 from app.models.flavour import BeanFlavourTag, FlavourTaxonomy
@@ -301,6 +303,17 @@ async def seed_extended(session: AsyncSession) -> None:
 
 async def main() -> None:
     engine = create_async_engine(DATABASE_URL, echo=False)
+
+    # Create PostgreSQL extensions required by models
+    async with engine.begin() as conn:
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+
+    # Create all tables (idempotent)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with Session() as session:
         await seed_extended(session)

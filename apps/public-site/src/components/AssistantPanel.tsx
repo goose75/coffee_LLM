@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
-
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface Message {
   role: "user" | "assistant" | "system";
@@ -105,7 +105,7 @@ export default function AssistantPanel() {
         .filter(m => m.role !== "system")
         .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-      const res = await fetch(`/api/assistant/chat`, {
+      const res = await fetch(`${API_BASE}/api/v1/assistant/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMsg, session_id: sessionId, history: historyForApi }),

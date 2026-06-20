@@ -1,254 +1,63 @@
-"""
-HTML Extractor — wrapper around existing schema.org/html/hybrid extractors.
-
-This extractor handles both single-product and multi-product (listing) pages:
-
-Single-product page flow:
-1. Try schema.org microdata extraction
-2. If failed or low confidence, try HTML rules-based extraction
-3. If still failed or low confidence, try hybrid extraction (rules → Ollama local → API LLM)
-
-Multi-product (listing) page flow:
-1. Detect product containers (WooCommerce .product, Shopify .product-item, etc.)
-2. For each container, extract as single product
-3. Return all extracted products
-
-Returns ExtractionResult objects (not RawExtraction records) for direct
-consumption by HtmlIngestionPipeline.
-"""
-
+"""HTML extractor — runs parser chain (custom → schema.org → html rules → llm)."""
 from __future__ import annotations
-
-import logging
-from typing import Optional
 
 from app.services.extraction.schema_org_parser import SchemaOrgParser
 from app.services.extraction.html_parser import HtmlRulesParser
-from app.services.extraction.woocommerce_parser import WooCommerceParser
-from app.services.extraction.browser_extractor import BrowserExtractor
-from app.services.extraction.hybrid_extractor import HybridExtractor
-from app.services.extraction.payload import ExtractionPayload, ExtractionResult as ExtractionResultModel
-from app.services.extraction.woocommerce_json_extractor import extract_woocommerce_coffee_data
-from .product_listing_extractor import ProductListingExtractor
-
-log = logging.getLogger(__name__)
+from app.services.extraction.llm_parser import LLMParser
+from app.services.extraction.monmouth_parser import CustomStyleParser
+from app.services.extraction.payload import ExtractionResult
 
 
 class HtmlExtractor:
     """
-    Orchestrates extraction chain for HTML pages.
-
-    Automatically detects listing pages with multiple products and handles them
-    differently from single-product pages.
-
-    Fallback strategy (per product):
-      1. Schema.org (if confidence >= 0.4)
-      2. HTML rules (if confidence >= 0.4)
-      3. Hybrid (rules → Ollama local LLM → Anthropic API LLM) (if both failed or confidence < 0.4)
+    Wraps extraction parsers: runs custom site parsers → schema.org → html rules → llm chain.
+    Returns ExtractionResult objects (not RawExtraction records).
     """
 
     def __init__(self):
-        """Initialize parsers."""
+        self.custom_style_parser = CustomStyleParser()
         self.schema_org_parser = SchemaOrgParser()
-        self.woocommerce_parser = WooCommerceParser()
         self.html_rules_parser = HtmlRulesParser()
-        self.browser_extractor = BrowserExtractor()  # For JavaScript-rendered sites
-        self.hybrid_extractor = HybridExtractor(use_ollama=True, use_api_fallback=True)
-        self.listing_extractor = ProductListingExtractor()
+        self.llm_parser = LLMParser()
 
-    async def extract_products(
-        self, html_bytes: bytes, url: str
-    ) -> list[ExtractionResultModel]:
+    async def extract_products(self, html_bytes: bytes, url: str) -> list[ExtractionResult]:
         """
-        Extract products from HTML, handling both single and multi-product pages.
-
-        For listing pages (multiple products detected):
-          - Extract each product container separately
-          - Return list of all extracted products
-
-        For single-product pages:
-          - Try schema.org → HTML rules → LLM fallback chain
-          - Return single result if successful
-
-        Returns:
-            List of ExtractionResult objects. Could be empty if all methods fail.
+        Run parser chain on HTML page.
+        Returns list of ExtractionResult objects (could be empty if all parsers fail).
         """
-        html_str = html_bytes.decode("utf-8", errors="ignore")
         results = []
 
-        # Step 1: Detect if this is a listing page
+        # Try custom style parser (site-specific, very high precision, can return multiple products)
         try:
-            is_listing = self.listing_extractor.is_listing_page(html_str)
-            if is_listing:
-                log.info(f"Detected listing page with multiple products: {url}")
-                product_containers = self.listing_extractor.extract_product_containers(html_str)
-                log.info(f"Extracted {len(product_containers)} product containers from {url}")
+            custom_results = await self.custom_style_parser.extract_all(html_bytes, url)
+            results.extend(custom_results)
+        except Exception:
+            pass
 
-                # Extract each product container separately
-                for i, container_html in enumerate(product_containers):
-                    try:
-                        container_bytes = container_html.encode("utf-8")
-                        container_results = await self._extract_single_product(
-                            container_bytes, f"{url}#product-{i}"
-                        )
-                        results.extend(container_results)
-                    except Exception as exc:
-                        log.warning(
-                            f"Failed to extract product {i} from {url}: {exc}"
-                        )
-
-                if results:
-                    log.info(
-                        f"Successfully extracted {len(results)} products from listing page {url}"
-                    )
-                    return results
-                # If listing detection found containers but extraction failed,
-                # fall through to single-product extraction as fallback
-                log.warning(
-                    f"Listing page extraction failed for {url}, "
-                    f"falling back to single-product extraction"
-                )
-
-        except Exception as exc:
-            log.debug(f"Listing page detection failed for {url}: {exc}")
-
-        # Step 2: Fall back to single-product extraction
-        results = await self._extract_single_product(html_bytes, url)
-        return results
-
-    async def _extract_single_product(
-        self, html_bytes: bytes, url: str
-    ) -> list[ExtractionResultModel]:
-        """
-        Extract a single product using the fallback chain.
-
-        Try: WooCommerce JSON → schema.org → WooCommerce → HTML rules → Browser (JavaScript) → Hybrid/LLM
-
-        Returns:
-            List with 0-1 ExtractionResult objects
-        """
-        print(f"🔥🔥🔥 _extract_single_product CALLED for {url}")
-        results = []
-        log.info(f"_extract_single_product called for {url}")
-
-        # Try WooCommerce omnisend_product JSON extraction first (direct embedded data)
+        # Try schema.org parser (high precision, low recall)
         try:
-            print(f"🔥 About to extract WooCommerce JSON for {url}")
-            log.info(f"Attempting WooCommerce JSON extraction for {url}")
-            json_payload = extract_woocommerce_coffee_data(html_bytes, url)
-            print(f"🔥 JSON payload: {json_payload is not None}")
-            log.info(f"JSON extractor returned: {json_payload is not None}")
-            if json_payload is not None:
-                json_result = ExtractionResultModel(
-                    validation_status="valid",
-                    payload=json_payload
-                )
-                results.append(json_result)
-                log.info(
-                    f"WooCommerce JSON extraction succeeded for {url}: "
-                    f"{json_payload.coffee_name} "
-                    f"(confidence: {json_payload.confidence:.2f}, variants: {len(json_payload.price_variants)})"
-                )
-                return results  # JSON extraction is highly reliable, return immediately
-        except Exception as exc:
-            log.warning(f"WooCommerce JSON extraction failed for {url}: {exc}", exc_info=True)
-
-        # Try schema.org first (highest precision if present)
-        try:
-            schema_result = self.schema_org_parser.extract(html_bytes, url)
+            schema_result = await self.schema_org_parser.extract(html_bytes, url)
             if schema_result.validation_status in ("valid", "partial"):
-                if schema_result.payload.confidence >= 0.3:  # Lowered threshold to 0.3 since LLM unavailable
-                    results.append(schema_result)
-                    log.debug(
-                        f"Schema.org extraction succeeded for {url} "
-                        f"(confidence: {schema_result.payload.confidence:.2f})"
-                    )
-                else:
-                    log.debug(
-                        f"Schema.org confidence too low for {url} "
-                        f"({schema_result.payload.confidence:.2f})"
-                    )
-        except Exception as exc:
-            log.debug(f"Schema.org extraction failed for {url}: {exc}")
+                results.append(schema_result)
+        except Exception:
+            pass
 
-        # Try WooCommerce-specific parser (higher confidence for WooCommerce sites)
+        # Try HTML rules parser (medium precision/recall)
         try:
-            woo_result = self.woocommerce_parser.extract(html_bytes, url)
-            if woo_result.validation_status in ("valid", "partial"):
-                if woo_result.payload.confidence >= 0.3:
-                    results.append(woo_result)
-                    log.debug(
-                        f"WooCommerce extraction succeeded for {url} "
-                        f"(confidence: {woo_result.payload.confidence:.2f})"
-                    )
-                else:
-                    log.debug(
-                        f"WooCommerce confidence too low for {url} "
-                        f"({woo_result.payload.confidence:.2f})"
-                    )
-        except Exception as exc:
-            log.debug(f"WooCommerce extraction failed for {url}: {exc}")
+            html_result = await self.html_rules_parser.extract(html_bytes, url)
+            if html_result.validation_status in ("valid", "partial") and html_result.payload.confidence >= 0.4:
+                results.append(html_result)
+        except Exception:
+            pass
 
-        # Try generic HTML rules (fallback for non-WooCommerce sites)
+        # Try LLM fallback if low confidence so far
         try:
-            html_result = self.html_rules_parser.extract(html_bytes, url)
-            if html_result.validation_status in ("valid", "partial"):
-                if html_result.payload.confidence >= 0.3:  # Lowered threshold to 0.3 since LLM unavailable
-                    results.append(html_result)
-                    log.debug(
-                        f"HTML rules extraction succeeded for {url} "
-                        f"(confidence: {html_result.payload.confidence:.2f})"
-                    )
-                else:
-                    log.debug(
-                        f"HTML rules confidence too low for {url} "
-                        f"({html_result.payload.confidence:.2f})"
-                    )
-        except Exception as exc:
-            log.debug(f"HTML rules extraction failed for {url}: {exc}")
-
-        # Try browser extraction for JavaScript-heavy sites (Elementor, SPAs, etc.)
-        best_confidence = max([r.payload.confidence for r in results], default=0.0)
-        if best_confidence < 0.4:
-            try:
-                log.debug(f"Browser extraction for {url} (JavaScript-heavy site detection)")
-                browser_result = self.browser_extractor.extract(html_bytes, url)
-                if browser_result.validation_status in ("valid", "partial"):
-                    if browser_result.payload.confidence >= 0.3:
-                        results.append(browser_result)
-                        log.info(
-                            f"Browser extraction succeeded for {url} "
-                            f"(confidence: {browser_result.payload.confidence:.2f})"
-                        )
-                    else:
-                        log.debug(
-                            f"Browser extraction confidence too low for {url} "
-                            f"({browser_result.payload.confidence:.2f})"
-                        )
-            except Exception as exc:
-                log.debug(f"Browser extraction failed for {url}: {exc}")
-
-        # Try hybrid extraction (rules → Ollama local → API LLM) as final fallback
-        best_confidence = max([r.payload.confidence for r in results], default=0.0)
-        if best_confidence < 0.4:
-            try:
-                log.debug(f"Hybrid extraction fallback for {url} (best confidence: {best_confidence:.2f})")
-                hybrid_result = await self.hybrid_extractor.extract(html_bytes, url)
-                hybrid_extraction = hybrid_result.final_result
-
-                if hybrid_extraction.validation_status in ("valid", "partial"):
-                    results.append(hybrid_extraction)
-                    log.info(
-                        f"Hybrid extraction succeeded for {url} "
-                        f"(strategy={hybrid_result.strategy_used}, confidence={hybrid_result.confidence:.2f})"
-                    )
-            except Exception as exc:
-                log.debug(f"Hybrid extraction failed for {url}: {exc}")
-
-        if not results:
-            log.debug(
-                f"All extraction methods failed for {url} "
-                f"(schema.org, woocommerce, html rules, llm)"
-            )
+            best_confidence = max([r.payload.confidence for r in results], default=0)
+            if best_confidence < 0.4:
+                llm_result = await self.llm_parser.extract(html_bytes, url)
+                if llm_result.validation_status in ("valid", "partial"):
+                    results.append(llm_result)
+        except Exception:
+            pass
 
         return results

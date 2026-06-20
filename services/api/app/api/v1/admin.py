@@ -230,8 +230,7 @@ async def trigger_ingestion(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
-    Trigger a Shopify ingestion run for a store.
-    Only works for stores with parser_strategy=shopify.
+    Trigger ingestion run for a store (Shopify or HTML).
     Runs synchronously in the request for now (Phase 2 moves this to a worker queue).
     """
     try:
@@ -242,14 +241,19 @@ async def trigger_ingestion(
     store = (await db.execute(select(Store).where(Store.id == store_uuid))).scalar_one_or_none()
     if store is None:
         raise HTTPException(status_code=404, detail="Store not found")
-    if store.parser_strategy.value != "shopify":
+
+    if store.parser_strategy.value == "shopify":
+        from app.services.shopify import ShopifyIngestionPipeline
+        pipeline = ShopifyIngestionPipeline(session=db, store=store)
+    elif store.parser_strategy.value == "html":
+        from app.services.html import HtmlIngestionPipeline
+        pipeline = HtmlIngestionPipeline(session=db, store=store)
+    else:
         raise HTTPException(
             status_code=422,
-            detail=f"Store parser_strategy is '{store.parser_strategy.value}', not 'shopify'",
+            detail=f"Store parser_strategy '{store.parser_strategy.value}' not supported yet",
         )
 
-    from app.services.shopify import ShopifyIngestionPipeline
-    pipeline = ShopifyIngestionPipeline(session=db, store=store)
     run = await pipeline.run()
 
     return {

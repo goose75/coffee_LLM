@@ -10,13 +10,11 @@
  *
  * Structure:
  *   1. Hero — one strong statement + smart search
- *   2. Quick Quiz — find your coffee in 3 questions
- *   3. Deals — biggest price drops this week
- *   4. Just Added — trending/new releases
- *   5. New releases — horizontal scroll, editorial card treatment
- *   6. Origin highlights — three featured origins with flavour strips
- *   7. Roaster strip — compact but dignified
- *   8. How it works — three lines, no more
+ *   2. Flavour Atlas preview — the centrepiece interaction teaser
+ *   3. New releases — horizontal scroll, editorial card treatment
+ *   4. Origin highlights — three featured origins with flavour strips
+ *   5. Roaster strip — compact but dignified
+ *   6. How it works — three lines, no more
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -26,7 +24,7 @@ import { QuickQuizModal } from "@/components/QuickQuizModal";
 import { DealsSection } from "@/components/DealsSection";
 import { TrendingSection } from "@/components/TrendingSection";
 
-
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const PROCESS_COLOURS: Record<string, string> = {
   washed: "#6b9e8c", natural: "#c4763a", honey: "#d4a84b",
@@ -81,22 +79,23 @@ export default function HomePage() {
 
   useEffect(() => {
     // Fetch in parallel, degrade gracefully
-    fetch(`/api/new-releases?days=21&page=1&page_size=8`)
+    fetch(`${API_BASE}/api/v1/new-releases?days=21&page=1&page_size=8`)
       .then(r => r.json()).then(d => setNewReleases(d.data ?? [])).catch(() => {});
 
-    fetch(`/api/roasters?page=1&page_size=6`)
+    fetch(`${API_BASE}/api/v1/roasters?page=1&page_size=6`)
       .then(r => r.json()).then(d => {
         setRoasters(d.data ?? []);
         setTotalRoasters(d.total ?? 0);
       }).catch(() => {});
 
-    fetch(`/api/coffees?page_size=1`)
-      .then(r => r.json()).then(d => setTotalCoffees(d.total ?? 0)).catch(() => {});
-
-    fetch(`/api/origins`)
+    fetch(`${API_BASE}/api/v1/origins`)
       .then(r => r.json()).then(d => {
         setOrigins((d.origins ?? []).slice(0, 6));
+        setTotalCoffees(d.total_coffees ?? 0);
       }).catch(() => {});
+
+    fetch(`${API_BASE}/api/v1/coffees?page_size=1`)
+      .then(r => r.json()).then(d => setTotalCoffees(d.total ?? 0)).catch(() => {});
   }, []);
 
   return (
@@ -108,10 +107,10 @@ export default function HomePage() {
       {/* ── 2. Quick Quiz Modal ─────────────────────────────────────────── */}
       <QuickQuizModal isOpen={quizOpen} onClose={() => setQuizOpen(false)} />
 
-      {/* ── 3. Deals Section (Phase 1) ──────────────────────────────────– */}
+      {/* ── 3. Deals Section ────────────────────────────────────────────── */}
       <DealsSection />
 
-      {/* ── 4. Trending Section (Phase 1) ───────────────────────────────── */}
+      {/* ── 4. Trending Section ─────────────────────────────────────────── */}
       <TrendingSection />
 
       {/* ── 5. New releases ─────────────────────────────────────────────── */}
@@ -123,7 +122,7 @@ export default function HomePage() {
       {/* ── 7. Roaster strip ────────────────────────────────────────────── */}
       {roasters.length > 0 && <RoasterStrip roasters={roasters} total={totalRoasters} />}
 
-      {/* ── 8. How it works ─────────────────────────────────────────────── */}
+      {/* ── 8. How it works ─────────────────────────────────────────────– */}
       <HowItWorks />
 
       <style jsx>{styles}</style>
@@ -217,84 +216,14 @@ function HeroSection({ totalCoffees, totalRoasters, onQuizClick }: { totalCoffee
 
       {/* Quick links */}
       <div className="hero-links">
-        <button className="hero-link hero-link-button" onClick={onQuizClick}>
-          ✨ Take Quiz
-        </button>
         {[
-          { href: "/collections", label: "Collections" },
           { href: "/flavour-atlas", label: "Flavour Atlas" },
-          { href: "/origins-explorer", label: "Origins" },
-          { href: "/brew-guides", label: "Brew Guides" },
+          { href: "/origins", label: "Origins" },
           { href: "/coffees", label: "Browse all" },
+          { href: "/new-releases", label: "New releases" },
         ].map(({ href, label }) => (
           <Link key={href} href={href} className="hero-link">{label}</Link>
         ))}
-      </div>
-    </section>
-  );
-}
-
-// ── Flavour Atlas Teaser ──────────────────────────────────────────────────────
-
-function FlavourAtlasTeaser() {
-  const families = [
-    { slug: "fruity",    label: "Fruity",    colour: "#e05c3a", w: 28 },
-    { slug: "sweet",     label: "Sweet",     colour: "#d4a84b", w: 22 },
-    { slug: "chocolate", label: "Chocolate", colour: "#7c4b2a", w: 16 },
-    { slug: "fermented", label: "Fermented", colour: "#8b6bab", w: 14 },
-    { slug: "floral",    label: "Floral",    colour: "#c084c0", w: 10 },
-    { slug: "nutty",     label: "Nutty",     colour: "#a07850", w: 8 },
-    { slug: "earthy",    label: "Earthy",    colour: "#6b7c4a", w: 5 },
-  ];
-
-  return (
-    <section className="atlas-teaser">
-      <div className="atlas-teaser-inner">
-        <div className="atlas-teaser-text">
-          <span className="section-eyebrow">Flavour Atlas</span>
-          <h2 className="section-title">Explore by taste,<br />not filter.</h2>
-          <p className="atlas-teaser-body">
-            Select a flavour family. Reveal sub-notes. Discover matching coffees.
-            A different way to browse.
-          </p>
-          <Link href="/flavour-atlas" className="atlas-teaser-cta">
-            Open Flavour Atlas →
-          </Link>
-        </div>
-
-        <Link href="/flavour-atlas" className="atlas-teaser-visual" aria-label="Open Flavour Atlas">
-          {/* Orbital preview — simplified static version */}
-          <div className="atlas-orbit">
-            <div className="atlas-centre">
-              <span className="atlas-centre-n">{families.reduce((s,f)=>s+f.w,0)}</span>
-              <span className="atlas-centre-l">coffees</span>
-            </div>
-            {families.map((f, i) => {
-              const angle = (360 / families.length) * i - 90;
-              const rad = angle * Math.PI / 180;
-              const r = 72;
-              const x = 50 + r * Math.cos(rad);
-              const y = 50 + r * Math.sin(rad);
-              return (
-                <div
-                  key={f.slug}
-                  className="atlas-node"
-                  style={{
-                    left: `${x}%`, top: `${y}%`,
-                    background: f.colour,
-                    width: Math.max(28, f.w * 1.2) + "px",
-                    height: Math.max(28, f.w * 1.2) + "px",
-                    fontSize: Math.max(8, f.w * 0.35) + "px",
-                    opacity: 0.75 + (f.w / 28) * 0.25,
-                  }}
-                  title={f.label}
-                >
-                  {f.label.slice(0, 3)}
-                </div>
-              );
-            })}
-          </div>
-        </Link>
       </div>
     </section>
   );
@@ -356,18 +285,17 @@ function OriginHighlights({ origins }: { origins: OriginSummary[] }) {
 
       <div className="origins-grid">
         {origins.slice(0, 6).map((o) => {
-          const families = o.top_flavour_families ?? [];
-          const maxFam = families.length > 0 ? Math.max(1, ...families.map(f => f.count)) : 1;
+          const maxFam = Math.max(1, ...o.top_flavour_families.map(f => f.count));
           return (
             <Link key={o.country} href={`/origins?country=${encodeURIComponent(o.country)}`} className="origin-tile">
               <div className="origin-tile-top">
-                <span className="origin-tile-emoji">{o.emoji ?? '🌍'}</span>
+                <span className="origin-tile-emoji">{o.emoji}</span>
                 <span className="origin-tile-name">{o.country}</span>
                 <span className="origin-tile-count">{o.coffee_count}</span>
               </div>
               {/* Flavour strip */}
               <div className="origin-tile-strip">
-                {families.map(f => (
+                {o.top_flavour_families.map(f => (
                   <div
                     key={f.slug}
                     className="origin-tile-band"
@@ -618,15 +546,6 @@ const styles = `
     transition: border-color 0.15s, color 0.15s;
   }
   .hero-link:hover { border-color: var(--accent); color: var(--accent); }
-  .hero-link-button {
-    background: none;
-    cursor: pointer;
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .hero-link-button:hover {
-    background: rgba(181, 136, 42, 0.05);
-  }
 
   /* ── Flavour Atlas teaser ── */
   .atlas-teaser {

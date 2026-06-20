@@ -21,7 +21,7 @@
 
 import { useEffect, useState } from "react";
 
-
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface BrewScore {
   method: string;
@@ -62,7 +62,7 @@ export default function BrewFit({ coffeeId }: { coffeeId: string }) {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/coffees/${coffeeId}/brew-fit`)
+    fetch(`${API_BASE}/api/v1/coffees/${coffeeId}/brew-fit`)
       .then((r) => r.json())
       .then((d) => { setData(d); setLoading(false); })
       .catch(() => { setError(true); setLoading(false); });

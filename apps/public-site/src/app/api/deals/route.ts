@@ -1,21 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as dbQueries from "@/lib/db-queries";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const params: Record<string, string | number | undefined> = {
-      page: searchParams.get("page") ?? "1",
-      page_size: searchParams.get("page_size") ?? "20",
-    };
+    const days = searchParams.get("days") ?? "7";
+    const minDiscount = searchParams.get("min_discount_percent") ?? "10";
+    const limit = searchParams.get("limit") ?? "6";
 
-    const data = await dbQueries.getCoffees(params);
-    // Return just the array of coffees, not the paginated response
-    return NextResponse.json(data.data);
+    const apiUrl = process.env.BACKEND_API_URL || "http://localhost:8000";
+    const response = await fetch(
+      `${apiUrl}/api/v1/coffees/deals?days=${days}&min_discount_percent=${minDiscount}&limit=${limit}`
+    );
+
+    if (!response.ok) {
+      console.error("Backend API error:", response.status);
+      return NextResponse.json({ error: "Failed to fetch deals" }, { status: 500 });
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
-    console.error("GET /api/coffees/deals error:", error);
+    console.error("GET /api/deals error:", error);
     return NextResponse.json({ error: "Failed to fetch deals" }, { status: 500 });
   }
 }

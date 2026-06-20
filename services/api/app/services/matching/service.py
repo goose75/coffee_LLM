@@ -204,10 +204,14 @@ class CanonicalMatchingService:
         match.review_notes = notes
         match.reviewed_at = datetime.now(timezone.utc)
 
-        # Link the listing
+        # Link the listing and enrich canonical with extracted data
         listing = await self.session.get(BeanListing, match.bean_listing_id)
         if listing:
             listing.canonical_bean_id = match.proposed_canonical_bean_id
+            # Enrich the canonical with extracted fields from this listing
+            canonical = await self.session.get(CanonicalBean, match.proposed_canonical_bean_id)
+            if canonical:
+                await self._enrich_canonical_from_listing(canonical, listing)
 
         await self.session.commit()
         return match
@@ -269,6 +273,10 @@ class CanonicalMatchingService:
             listing = await self.session.get(BeanListing, match.bean_listing_id)
             if listing:
                 listing.canonical_bean_id = match.proposed_canonical_bean_id
+                # Enrich the canonical with extracted fields from this listing
+                canonical = await self.session.get(CanonicalBean, match.proposed_canonical_bean_id)
+                if canonical:
+                    await self._enrich_canonical_from_listing(canonical, listing)
             accepted += 1
 
         await self.session.commit()
@@ -500,10 +508,12 @@ class CanonicalMatchingService:
         match: CanonicalMatch,
         canonical: CanonicalBean,
     ) -> None:
-        """Mark match as system-accepted and link listing to canonical."""
+        """Mark match as system-accepted, link listing to canonical, and enrich canonical with extracted data."""
         match.review_status = ReviewStatus.accepted
         match.reviewed_at = datetime.now(timezone.utc)
         listing.canonical_bean_id = canonical.id
+        # Enrich canonical with extracted fields from this listing
+        await self._enrich_canonical_from_listing(canonical, listing)
 
     async def _create_new_canonical(
         self,
@@ -601,3 +611,27 @@ class CanonicalMatchingService:
             if r.value in raw_lower or raw_lower in r.value:
                 return r
         return None
+
+    async def _enrich_canonical_from_listing(
+        self,
+        canonical: CanonicalBean,
+        listing: BeanListing,
+    ) -> None:
+        """
+        Update canonical_bean fields with extracted data from a listing.
+
+        Called whenever a listing is matched to a canonical (auto-accept or after review).
+        Updates origin_country, process, and roast_level if the listing has values and
+        the canonical doesn't, or if the listing provides a more specific value.
+        """
+        # Update origin_country if not set or if listing has a value
+        if listing.origin_label_raw and not canonical.origin_country:
+            canonical.origin_country = self._extract_country(listing)
+
+        # Update process if not set or if listing has a value
+        if listing.process_label_raw and not canonical.process:
+            canonical.process = self._extract_process(listing)
+
+        # Update roast_level if not set or if listing has a value
+        if listing.roast_label_raw and not canonical.roast_level:
+            canonical.roast_level = self._extract_roast(listing)

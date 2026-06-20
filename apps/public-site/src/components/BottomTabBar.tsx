@@ -111,27 +111,11 @@ function AtlasIcon({ filled }: { filled: boolean }) {
   );
 }
 
-function MapIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={filled ? 0 : 1.6} strokeLinecap="round" strokeLinejoin="round">
-      {filled ? (
-        <path d="M21 10.5l-7.5-7.5L6 8 2 5v14l5 2 7-3 7 2v-9.5zm-9-4.5a2 2 0 100 4 2 2 0 000-4z" />
-      ) : (
-        <>
-          <path d="M21 10.5l-7.5-7.5L6 8 2 5v14l5 2 7-3 7 2v-9.5" />
-          <circle cx="12" cy="8" r="2" />
-        </>
-      )}
-    </svg>
-  );
-}
-
 
 const TABS = [
   { href: "/",               label: "Home",    Icon: HomeIcon    },
   { href: "/coffees",        label: "Browse",  Icon: GridIcon    },
   { href: "/flavour-atlas",  label: "Atlas",   Icon: AtlasIcon   },
-  { href: "/roasters-map",   label: "Map",     Icon: MapIcon     },
   { href: "/roasters",       label: "Roasters",Icon: ShopIcon    },
   { href: "/search",         label: "Search",  Icon: SearchIcon  },
 ] as const;

@@ -10,7 +10,7 @@
 
 import {
   createContext, useContext, useState, useCallback,
-  useEffect, useRef, type ReactNode,
+  useEffect, type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
 
@@ -60,54 +60,14 @@ export function useCompare() { return useContext(Ctx); }
 
 const COLOURS = ["#c4763a", "#6b9e8c", "#8b6bab"];
 
-interface CoffeeSearchResult {
-  id: string;
-  canonical_name: string;
-  origin_country?: string;
-}
-
 function CompareTray() {
-  const { items, remove, clear, add } = useCompare();
+  const { items, remove, clear } = useCompare();
   const router = useRouter();
   const [visible, setVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<CoffeeSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setVisible(items.length >= 1);
   }, [items.length]);
-
-  // Search for coffees
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    setSearching(true);
-    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-    fetch(`${apiBase}/api/coffees?q=${encodeURIComponent(searchQuery)}&page_size=5`)
-      .then(r => {
-        if (!r.ok) throw new Error("Search failed");
-        return r.json();
-      })
-      .then(data => {
-        setSearchResults((data.data || []).map((coffee: any) => ({
-          id: coffee.id,
-          canonical_name: coffee.canonical_name,
-          origin_country: coffee.origin_country,
-        })));
-        setSearching(false);
-      })
-      .catch(() => {
-        setSearchResults([]);
-        setSearching(false);
-      });
-  }, [searchQuery]);
 
   if (!visible) return null;
 
@@ -129,7 +89,7 @@ function CompareTray() {
             </div>
           ))}
           {items.length < 3 && (
-            <div className="tray-slot tray-empty tray-search-trigger" onClick={() => setShowSearch(!showSearch)} style={{ cursor: "pointer" }}>
+            <div className="tray-slot tray-empty">
               <span className="tray-plus">+</span>
               <span className="tray-empty-label">Add coffee</span>
             </div>
@@ -148,60 +108,6 @@ function CompareTray() {
           </button>
         </div>
       </div>
-
-      {/* Search overlay */}
-      {showSearch && (
-        <div className="tray-search-container">
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder="Search coffees..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setShowSearch(false);
-                setSearchQuery("");
-              }
-            }}
-            autoFocus
-            className="tray-search-input"
-          />
-
-          {searchQuery && (
-            <div className="tray-search-results">
-              {searching ? (
-                <div className="tray-result-item disabled">Searching...</div>
-              ) : searchResults.length > 0 ? (
-                searchResults.map((coffee) => {
-                  const alreadyAdded = items.some(i => i.id === coffee.id);
-                  return (
-                    <button
-                      key={coffee.id}
-                      className={`tray-result-item ${alreadyAdded ? "disabled" : ""}`}
-                      disabled={alreadyAdded}
-                      onClick={() => {
-                        if (!alreadyAdded) {
-                          add(coffee.id, coffee.canonical_name);
-                          setSearchQuery("");
-                          setShowSearch(false);
-                        }
-                      }}
-                    >
-                      <span className="tray-result-name">{coffee.canonical_name}</span>
-                      {coffee.origin_country && (
-                        <span className="tray-result-origin">{coffee.origin_country}</span>
-                      )}
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="tray-result-item disabled">No coffees found</div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       <style jsx>{`
         .tray-root {
@@ -316,73 +222,6 @@ function CompareTray() {
           cursor: pointer;
         }
         .tray-compare-ready:hover { background: var(--accent-light); }
-
-        /* Search overlay */
-        .tray-search-container {
-          position: absolute;
-          bottom: 100%;
-          left: 0;
-          right: 0;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 12px 12px 0 0;
-          padding: 12px;
-          margin-bottom: 8px;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          max-height: 280px;
-          overflow-y: auto;
-        }
-        .tray-search-input {
-          padding: 10px 12px;
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          background: var(--bg);
-          color: var(--text);
-          font-family: var(--font-body);
-          font-size: 14px;
-          outline: none;
-        }
-        .tray-search-input:focus {
-          border-color: var(--accent);
-          box-shadow: 0 0 0 2px var(--accent-dim);
-        }
-        .tray-search-results {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .tray-result-item {
-          padding: 10px 12px;
-          border: none;
-          border-radius: 6px;
-          background: var(--surface-raised);
-          color: var(--text);
-          font-family: var(--font-body);
-          font-size: 13px;
-          text-align: left;
-          cursor: pointer;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          transition: background 0.15s;
-        }
-        .tray-result-item:hover:not(.disabled) {
-          background: var(--bg-warm);
-        }
-        .tray-result-item.disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .tray-result-name {
-          flex: 1;
-          font-weight: 500;
-        }
-        .tray-result-origin {
-          font-size: 11px;
-          color: var(--text-faint);
-        }
       `}</style>
     </div>
   );

@@ -21,10 +21,12 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.core.database import Base
 from app.models.store import Store
 from app.models.source_page import SourcePage
 from app.models.resolution import NormalisationMapping
@@ -334,6 +336,17 @@ async def seed(session: AsyncSession) -> None:
 
 async def main() -> None:
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
+
+    # Create PostgreSQL extensions required by models
+    async with engine.begin() as conn:
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+
+    # Create all tables (idempotent)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with async_session() as session:
         await seed(session)
