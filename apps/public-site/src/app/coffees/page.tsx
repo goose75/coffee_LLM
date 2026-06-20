@@ -90,7 +90,7 @@ export default function BrowsePage() {
 
   useEffect(() => { const t = setTimeout(() => setDebouncedQ(q), 350); return () => clearTimeout(t); }, [q]);
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice]);
+  useEffect(() => { setPage(1); }, [debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice, roasterDomain]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
