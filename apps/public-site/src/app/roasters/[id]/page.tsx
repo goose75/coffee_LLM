@@ -225,7 +225,7 @@ export default function RoasterPage() {
               </Link>
             ))}
           </div>
-          <Link href={`/coffees?store=${id}`} className="rf-see-all">
+          <Link href={`/coffees?roaster_domain=${fp.domain}`} className="rf-see-all">
             See all {fp.coffee_count} coffees →
           </Link>
         </section>

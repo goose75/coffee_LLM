@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import CoffeeCard from "@/components/CoffeeCard";
 import { getCoffees, getMarketAverages } from "@/lib/api";
 import type { Coffee, MarketAverages } from "@/lib/api";
@@ -56,6 +57,7 @@ function SkeletonCard() {
 }
 
 export default function BrowsePage() {
+  const searchParams = useSearchParams();
   const [q, setQ]                       = useState("");
   const [debouncedQ, setDebouncedQ]     = useState("");
   const [selectedProcess, setSelectedProcess] = useState<string[]>([]);
@@ -71,6 +73,15 @@ export default function BrowsePage() {
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
   const [marketMedian, setMarketMedian] = useState<number | null>(null);
+  const [roasterDomain, setRoasterDomain] = useState<string | null>(null);
+
+  // Initialize filters from URL params
+  useEffect(() => {
+    const domain = searchParams.get("roaster_domain");
+    if (domain) {
+      setRoasterDomain(domain);
+    }
+  }, [searchParams]);
 
   // Debounce
   useEffect(() => {
@@ -90,6 +101,7 @@ export default function BrowsePage() {
       if (selectedRoast.length)   params.roast_level = selectedRoast.join(",");
       if (selectedOrigin.length)  params.origin_country = selectedOrigin.join(",");
       if (selectedFlavour.length) params.flavour = selectedFlavour.join(",");
+      if (roasterDomain)          params.store_domain = roasterDomain;
       if (selectedPrice !== null) {
         const band = PRICE_BANDS[selectedPrice];
         params.min_price = band.min;
@@ -99,15 +111,15 @@ export default function BrowsePage() {
       setCoffees(data.data); setTotal(data.total);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
-  }, [page, debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice]);
+  }, [page, debouncedQ, selectedProcess, selectedRoast, selectedOrigin, selectedFlavour, selectedPrice, roasterDomain]);
 
   useEffect(() => { load(); }, [load]);
 
   const toggle = (arr: string[], set: (a: string[]) => void, val: string) =>
     set(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
-  const activeCount = selectedProcess.length + selectedRoast.length + selectedOrigin.length + selectedFlavour.length + (selectedPrice !== null ? 1 : 0);
-  const clearAll = () => { setSelectedProcess([]); setSelectedRoast([]); setSelectedOrigin([]); setSelectedFlavour([]); setSelectedPrice(null); setQ(""); };
+  const activeCount = selectedProcess.length + selectedRoast.length + selectedOrigin.length + selectedFlavour.length + (selectedPrice !== null ? 1 : 0) + (roasterDomain ? 1 : 0);
+  const clearAll = () => { setSelectedProcess([]); setSelectedRoast([]); setSelectedOrigin([]); setSelectedFlavour([]); setSelectedPrice(null); setQ(""); setRoasterDomain(null); };
   const totalPages = Math.ceil(total / 24);
 
   const FilterPanel = (
