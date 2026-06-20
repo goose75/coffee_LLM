@@ -63,14 +63,6 @@ export function DealsSection() {
           {deals.map((coffee) => (
             <div key={coffee.id} className="deals-card-wrapper">
               <CoffeeCard coffee={coffee} />
-              {coffee.discount_percent && (
-                <div className="deal-badge">
-                  <span className="deal-badge-percent">
-                    {coffee.discount_percent.toFixed(0)}%
-                  </span>
-                  <span className="deal-badge-label">OFF</span>
-                </div>
-              )}
             </div>
           ))}
         </div>
