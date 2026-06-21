@@ -19,6 +19,15 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "📍 Step 1: Killing all running processes..."
 
+# Kill any processes on ports 3000 and 3001
+for port in 3000 3001; do
+  if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "  → Killing process on port $port..."
+    lsof -ti:$port | xargs kill -9 2>/dev/null || true
+  fi
+done
+sleep 1
+
 # Kill any Node.js processes (public-site dev server, admin-app dev server)
 if pgrep -f "node.*public-site\|node.*admin-app\|next.*dev" > /dev/null 2>&1; then
   echo "  → Killing Node.js dev servers..."
