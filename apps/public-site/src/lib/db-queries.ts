@@ -553,7 +553,7 @@ export async function getSimilarCoffees(coffeeId: string, limit = 4): Promise<Si
     [coffeeId, limit]
   );
   return result.rows.map((row) => ({
-    bean_id: row.id,
+    id: row.id,
     canonical_name: row.canonical_name,
     origin_country: row.origin_country,
     process: row.process,
