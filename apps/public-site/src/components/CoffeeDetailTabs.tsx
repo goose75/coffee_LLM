@@ -87,7 +87,7 @@ function SimilarSection({ similar }: { similar: SimilarCoffee[] }) {
   return (
     <div className="space-y-2">
       {similar.map(s => (
-        <Link key={s.bean_id} href={`/coffees/${s.bean_id}`}
+        <Link key={s.id} href={`/coffees/${s.id}`}
           className="flex items-center gap-3 p-3 rounded-2xl press-active"
           style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border-light)" }}>
           <div className="flex-1 min-w-0">
