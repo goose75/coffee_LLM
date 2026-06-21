@@ -3,22 +3,39 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let baseUrl = '';
   if (typeof window === 'undefined') {
     // Server-side: use internal domain on Railway, localhost in development
-    if (process.env.RAILWAY_PRIVATE_DOMAIN) {
-      baseUrl = `http://${process.env.RAILWAY_PRIVATE_DOMAIN}`;
+    const privateDomain = process.env.RAILWAY_PRIVATE_DOMAIN;
+    if (privateDomain) {
+      baseUrl = `http://${privateDomain}`;
+      console.log(`[apiFetch] Using Railway domain: ${privateDomain}`);
     } else {
       baseUrl = 'http://localhost:3000';
+      console.log(`[apiFetch] Using localhost (no RAILWAY_PRIVATE_DOMAIN set)`);
     }
     console.log(`[apiFetch] Server-side fetch to ${baseUrl}/api${path}`);
   }
-  const res = await fetch(`${baseUrl}/api${path}`, {
-    ...init,
-    next: { revalidate: 300 }, // 5-min cache
-  } as RequestInit);
-  if (!res.ok) {
-    console.error(`[apiFetch] Error fetching ${baseUrl}/api${path}: ${res.status} ${res.statusText}`);
-    throw new Error(`API ${res.status}: ${res.statusText}`);
+
+  try {
+    const fullUrl = `${baseUrl}/api${path}`;
+    const res = await fetch(fullUrl, {
+      ...init,
+      next: { revalidate: 300 }, // 5-min cache
+    } as RequestInit);
+
+    console.log(`[apiFetch] Response status for ${fullUrl}: ${res.status} ${res.statusText}`);
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`[apiFetch] Error: ${res.status} ${res.statusText} - ${text.substring(0, 200)}`);
+      throw new Error(`API ${res.status}: ${res.statusText}`);
+    }
+
+    const data = await res.json() as T;
+    console.log(`[apiFetch] Success: got data from ${fullUrl}`);
+    return data;
+  } catch (error) {
+    console.error(`[apiFetch] Exception: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   }
-  return res.json() as Promise<T>;
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
