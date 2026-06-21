@@ -28,18 +28,30 @@ from app.api.v1.explanations import router as explanations_router
 async def lifespan(app: FastAPI):
     # Startup
     if settings.AUTO_CREATE_TABLES:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        except Exception as e:
+            print(f"Warning: Failed to create tables: {e}", flush=True)
 
     # Start autonomous healer (continuously fixes failing roasters)
-    async with get_session() as session:
-        await start_autonomous_healer(session)
+    try:
+        async with get_session() as session:
+            await start_autonomous_healer(session)
+    except Exception as e:
+        print(f"Warning: Failed to start autonomous healer: {e}", flush=True)
 
     yield
 
     # Shutdown
-    await stop_autonomous_healer()
-    await engine.dispose()
+    try:
+        await stop_autonomous_healer()
+    except Exception:
+        pass
+    try:
+        await engine.dispose()
+    except Exception:
+        pass
 
 
 app = FastAPI(
