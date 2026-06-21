@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as dbQueries from "@/lib/db-queries";
-
-export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const params: Record<string, string | number | undefined> = {
-      page: searchParams.get("page") ?? "1",
-      page_size: searchParams.get("page_size") ?? "20",
-    };
+    const backendUrl = process.env.BACKEND_API_URL || "http://localhost:8000";
+    const queryString = request.nextUrl.searchParams.toString();
+    const response = await fetch(`${backendUrl}/api/v1/coffees/trending?${queryString}`);
 
-    const data = await dbQueries.getCoffees(params);
+    if (!response.ok) {
+      return NextResponse.json([]);
+    }
+
+    const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error("GET /api/coffees/trending error:", error);
-    return NextResponse.json({ error: "Failed to fetch trending coffees" }, { status: 500 });
+    return NextResponse.json([]);
   }
 }

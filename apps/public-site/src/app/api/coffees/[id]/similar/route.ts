@@ -1,17 +1,19 @@
-'use server';
-
 import { NextRequest, NextResponse } from "next/server";
-import * as dbQueries from "@/lib/db-queries";
-
-export const dynamic = "force-dynamic";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const limit = Number(request.nextUrl.searchParams.get("limit")) || 4;
-    const data = await dbQueries.getSimilarCoffees(params.id, limit);
+    const backendUrl = process.env.BACKEND_API_URL || "http://localhost:8000";
+    const limit = request.nextUrl.searchParams.get("limit") || "4";
+    const response = await fetch(`${backendUrl}/api/v1/coffees/${params.id}/similar?limit=${limit}`);
+
+    if (!response.ok) {
+      return NextResponse.json([]);
+    }
+
+    const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error(`GET /api/coffees/${params.id}/similar error:`, error);
