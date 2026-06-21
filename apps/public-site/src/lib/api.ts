@@ -235,7 +235,7 @@ export interface TasteProfile {
 }
 
 export interface SimilarCoffee {
-  bean_id: string;
+  id: string;
   canonical_name: string;
   origin_country: string | null;
   process: string | null;
