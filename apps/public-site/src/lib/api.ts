@@ -1,6 +1,14 @@
 // Use local database proxies instead of external API
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const baseUrl = typeof window === 'undefined' ? 'http://localhost:3000' : '';
+  let baseUrl = '';
+  if (typeof window === 'undefined') {
+    // Server-side: use internal domain on Railway, localhost in development
+    if (process.env.RAILWAY_PRIVATE_DOMAIN) {
+      baseUrl = `http://${process.env.RAILWAY_PRIVATE_DOMAIN}`;
+    } else {
+      baseUrl = 'http://localhost:3000';
+    }
+  }
   const res = await fetch(`${baseUrl}/api${path}`, {
     ...init,
     next: { revalidate: 300 }, // 5-min cache
