@@ -91,7 +91,6 @@ export default function HomePage() {
     fetch(`${API_BASE}/api/v1/origins`)
       .then(r => r.json()).then(d => {
         setOrigins((d.origins ?? []).slice(0, 6));
-        setTotalCoffees(d.total_coffees ?? 0);
       }).catch(() => {});
 
     fetch(`${API_BASE}/api/v1/coffees?page_size=1`)
