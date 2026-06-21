@@ -1,6 +1,7 @@
 // Use local database proxies instead of external API
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const baseUrl = typeof window === 'undefined' ? 'http://localhost:3000' : '';
+  const res = await fetch(`${baseUrl}/api${path}`, {
     ...init,
     next: { revalidate: 300 }, // 5-min cache
   } as RequestInit);
