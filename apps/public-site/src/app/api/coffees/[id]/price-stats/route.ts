@@ -1,5 +1,7 @@
+'use server';
+
 import { NextRequest, NextResponse } from "next/server";
-import type { PriceSummaryStats } from "@/lib/api";
+import * as dbQueries from "@/lib/db-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -7,7 +9,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Price stats not yet implemented in local database
-  const data: PriceSummaryStats[] = [];
-  return NextResponse.json(data);
+  try {
+    const data = await dbQueries.getPriceStats(params.id);
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error(`GET /api/coffees/${params.id}/price-stats error:`, error);
+    return NextResponse.json([]);
+  }
 }

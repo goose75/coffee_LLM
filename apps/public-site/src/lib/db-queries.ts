@@ -467,10 +467,19 @@ export async function getMarketAverages(): Promise<MarketAverages> {
 }
 
 // Price, taste, and comparison functions return empty/placeholder data for now
-export async function getPriceHistory(): Promise<BeanPriceHistory> {
+export async function getPriceHistory(coffeeId: string): Promise<BeanPriceHistory> {
+  const result = await query(
+    `SELECT cb.id, cb.canonical_name FROM canonical_beans cb WHERE cb.id = $1`,
+    [coffeeId]
+  );
+  const coffee = result.rows[0];
+  if (!coffee) {
+    return { bean_id: coffeeId, canonical_name: "", variants: [], min_current_price_gbp: null, min_current_per_100g: null };
+  }
+  // Return basic coffee data - detailed price history requires more complex query
   return {
-    bean_id: "",
-    canonical_name: "",
+    bean_id: coffee.id,
+    canonical_name: coffee.canonical_name,
     variants: [],
     min_current_price_gbp: null,
     min_current_per_100g: null,
@@ -487,21 +496,70 @@ export async function getPriceCompare(): Promise<SellerComparison> {
   };
 }
 
-export async function getPriceStats(): Promise<PriceSummaryStats[]> {
-  return [];
+export async function getPriceStats(coffeeId: string): Promise<PriceSummaryStats[]> {
+  const result = await query(
+    `SELECT DISTINCT lv.weight_g, COUNT(*) as sample_count,
+      MIN(lv.price_gbp) as min_price, MAX(lv.price_gbp) as max_price,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY lv.price_gbp) as median_price,
+      AVG(lv.price_gbp) as mean_price,
+      MIN(lv.price_per_100g_gbp) as min_per_100g,
+      MAX(lv.price_per_100g_gbp) as max_per_100g,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY lv.price_per_100g_gbp) as median_per_100g
+     FROM bean_listings bl
+     JOIN listing_variants lv ON bl.id = lv.bean_listing_id
+     WHERE bl.canonical_bean_id = $1
+     GROUP BY lv.weight_g`,
+    [coffeeId]
+  );
+  return result.rows.map((row) => ({
+    weight_g: row.weight_g,
+    sample_count: Number(row.sample_count),
+    min_price_gbp: row.min_price ? Number(row.min_price) : null,
+    max_price_gbp: row.max_price ? Number(row.max_price) : null,
+    median_price_gbp: row.median_price ? Number(row.median_price) : null,
+    mean_price_gbp: row.mean_price ? Number(row.mean_price) : null,
+    min_per_100g: row.min_per_100g ? Number(row.min_per_100g) : null,
+    max_per_100g: row.max_per_100g ? Number(row.max_per_100g) : null,
+    median_per_100g: row.median_per_100g ? Number(row.median_per_100g) : null,
+  }));
 }
 
-export async function getTasteProfile(): Promise<TasteProfile> {
+export async function getTasteProfile(coffeeId: string): Promise<TasteProfile> {
+  const result = await query(
+    `SELECT id, canonical_name, flavour_notes FROM canonical_beans WHERE id = $1`,
+    [coffeeId]
+  );
+  const coffee = result.rows[0];
+  if (!coffee) {
+    return { bean_id: coffeeId, canonical_name: "", raw_notes: [], families: [], has_structured_tags: false, tag_count: 0 };
+  }
+  const raw_notes = coffee.flavour_notes || [];
   return {
-    bean_id: "",
-    canonical_name: "",
-    raw_notes: [],
+    bean_id: coffee.id,
+    canonical_name: coffee.canonical_name,
+    raw_notes: raw_notes,
     families: [],
     has_structured_tags: false,
-    tag_count: 0,
+    tag_count: raw_notes.length,
   };
 }
 
-export async function getSimilarCoffees(): Promise<SimilarCoffee[]> {
-  return [];
+export async function getSimilarCoffees(coffeeId: string, limit = 4): Promise<SimilarCoffee[]> {
+  const result = await query(
+    `SELECT id, canonical_name, origin_country, process, roast_level, flavour_notes
+     FROM canonical_beans
+     WHERE id != $1 AND (origin_country IS NOT NULL OR process IS NOT NULL)
+     LIMIT $2`,
+    [coffeeId, limit]
+  );
+  return result.rows.map((row) => ({
+    bean_id: row.id,
+    canonical_name: row.canonical_name,
+    origin_country: row.origin_country,
+    process: row.process,
+    roast_level: row.roast_level,
+    flavour_notes: row.flavour_notes || [],
+    similarity_score: 0.5,
+    shared_families: [],
+  }));
 }

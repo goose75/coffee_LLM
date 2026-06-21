@@ -1,5 +1,7 @@
+'use server';
+
 import { NextRequest, NextResponse } from "next/server";
-import type { BeanPriceHistory } from "@/lib/api";
+import * as dbQueries from "@/lib/db-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -7,13 +9,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Price history not yet implemented in local database
-  const data: BeanPriceHistory = {
-    bean_id: params.id,
-    canonical_name: "",
-    variants: [],
-    min_current_price_gbp: null,
-    min_current_per_100g: null,
-  };
-  return NextResponse.json(data);
+  try {
+    const data = await dbQueries.getPriceHistory(params.id);
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error(`GET /api/coffees/${params.id}/price-history error:`, error);
+    return NextResponse.json({ bean_id: params.id, canonical_name: "", variants: [], min_current_price_gbp: null, min_current_per_100g: null });
+  }
 }
