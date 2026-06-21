@@ -2,9 +2,11 @@
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let baseUrl = '';
   if (typeof window === 'undefined') {
-    // Server-side: always use localhost since the app is running within the same container
-    baseUrl = 'http://localhost:3000';
-    console.log(`[apiFetch] Server-side fetch to ${baseUrl}/api${path}`);
+    // Server-side: use localhost with the correct port
+    // Railway/standalone uses port 8080, development uses 3000
+    const port = process.env.PORT || '3000';
+    baseUrl = `http://localhost:${port}`;
+    console.log(`[apiFetch] Using port ${port}, server-side fetch to ${baseUrl}/api${path}`);
   }
 
   try {
