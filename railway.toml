@@ -3,4 +3,4 @@ builder = "nixpacks"
 buildCommand = "pnpm install && pnpm --filter public-site build"
 
 [deploy]
-startCommand = "node apps/public-site/.next/standalone/server.js"
+startCommand = "pnpm --filter public-site start"
