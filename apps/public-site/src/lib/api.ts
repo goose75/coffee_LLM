@@ -2,15 +2,8 @@
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let baseUrl = '';
   if (typeof window === 'undefined') {
-    // Server-side: use internal domain on Railway, localhost in development
-    const privateDomain = process.env.RAILWAY_PRIVATE_DOMAIN;
-    if (privateDomain) {
-      baseUrl = `http://${privateDomain}`;
-      console.log(`[apiFetch] Using Railway domain: ${privateDomain}`);
-    } else {
-      baseUrl = 'http://localhost:3000';
-      console.log(`[apiFetch] Using localhost (no RAILWAY_PRIVATE_DOMAIN set)`);
-    }
+    // Server-side: always use localhost since the app is running within the same container
+    baseUrl = 'http://localhost:3000';
     console.log(`[apiFetch] Server-side fetch to ${baseUrl}/api${path}`);
   }
 
