@@ -8,12 +8,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     } else {
       baseUrl = 'http://localhost:3000';
     }
+    console.log(`[apiFetch] Server-side fetch to ${baseUrl}/api${path}`);
   }
   const res = await fetch(`${baseUrl}/api${path}`, {
     ...init,
     next: { revalidate: 300 }, // 5-min cache
   } as RequestInit);
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  if (!res.ok) {
+    console.error(`[apiFetch] Error fetching ${baseUrl}/api${path}: ${res.status} ${res.statusText}`);
+    throw new Error(`API ${res.status}: ${res.statusText}`);
+  }
   return res.json() as Promise<T>;
 }
 
